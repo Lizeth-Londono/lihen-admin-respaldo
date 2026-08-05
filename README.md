@@ -59,3 +59,11 @@ La estructura base (Migración 001) ya fue ejecutada directamente en el proyecto
 - No subir contraseñas, secret keys ni capturas con tokens.
 - Cada cofundadora debe usar su propia cuenta.
 - Los datos de clientes y proveedores están protegidos mediante RLS.
+
+## Actualización 2.0: edición e importaciones
+
+Esta versión agrega edición de clientes, proveedores y productos; importación masiva del inventario Excel por SKU; importación de clientes/proveedores; validación de duplicados; plantillas y una identidad visual más cercana al catálogo público.
+
+Antes de usar estas funciones ejecuta `sql/006_edicion_e_importaciones.sql` en Supabase.
+
+Consulta `docs/GUIA_ACTUALIZACION_2_0.md` para el procedimiento completo.

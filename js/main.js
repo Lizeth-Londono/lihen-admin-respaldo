@@ -3,6 +3,8 @@ import { $, $$ } from './utils.js';
 import { shell, login, passwordSetup, toast, closeModal, modal } from './ui.js';
 import { renderRoute, showOrder } from './views.js';
 import { newCustomer, newSupplier, newProduct, newOrder, importCatalog, inventoryAdjustment } from './forms.js';
+import { editCustomer, editSupplier, editProduct } from './editors.js';
+import { importInventory, importSuppliers, importCustomers } from './imports.js';
 
 const app=$('#app');
 async function boot(){app.innerHTML='<div class="splash"><img src="assets/logo-lihen.jpg" alt="LIHEN"><span></span><p>Preparando LIHEN Admin…</p></div>';try{await loadSession();if(isAuthCallback()&&state.session){renderPasswordSetup();return;}state.session?await renderApp():renderLogin();}catch(e){console.error(e);renderLogin('No fue posible conectar con Supabase. Revisa la conexión.')};}
@@ -57,6 +59,9 @@ function bindContent(){
  $$('[data-route]').forEach(b=>{if(!b.dataset.bound){b.dataset.bound='1';b.addEventListener('click',()=>navigate(b.dataset.route))}});
  $$('[data-action]').forEach(b=>{if(!b.dataset.bound){b.dataset.bound='1';b.addEventListener('click',()=>action(b.dataset.action,b.dataset))}});
  $$('[data-order-id]').forEach(b=>b.addEventListener('click',()=>{const o=state.orders.find(x=>x.id===b.dataset.orderId)||state.dashboard?.recentOrders.find(x=>x.id===b.dataset.orderId);if(o)showOrder(o)}));
+ $$('[data-edit-customer]').forEach(b=>b.addEventListener('click',()=>editCustomer(b.dataset.editCustomer)));
+ $$('[data-edit-supplier]').forEach(b=>b.addEventListener('click',()=>editSupplier(b.dataset.editSupplier)));
+ $$('[data-edit-product]').forEach(b=>b.addEventListener('click',()=>editProduct(b.dataset.editProduct)));
  $('#orderStatus')?.addEventListener('change',e=>{$$('tbody tr').forEach(tr=>tr.hidden=e.target.value&&!tr.innerText.toLowerCase().includes(e.target.selectedOptions[0].text.toLowerCase()))});
  const bindTableSearch=(id)=>{$(id)?.addEventListener('input',e=>{const q=e.target.value.trim().toLowerCase();$$('tbody tr').forEach(tr=>tr.hidden=q&&!tr.innerText.toLowerCase().includes(q));});};
  bindTableSearch('#orderSearch');bindTableSearch('#productSearch');bindTableSearch('#customerSearch');
@@ -66,6 +71,7 @@ function bindContent(){
 async function navigate(route){state.route=route;$('#sidebar')?.classList.remove('open');app.innerHTML=shell('<div id="viewRoot"></div>');await refresh();bindGlobal();}
 function action(name,dataset={}){({
  'new-order':newOrder,'new-product':newProduct,'new-supplier':newSupplier,'new-customer':newCustomer,'import-catalog':importCatalog,
+ 'import-inventory':importInventory,'import-suppliers':importSuppliers,'import-customers':importCustomers,
  'inventory-adjustment':inventoryAdjustment,
  'generate-receipt':()=>toast('Abre un pedido para generar su comprobante.','warning')
 }[name]||(()=>{}))();}
