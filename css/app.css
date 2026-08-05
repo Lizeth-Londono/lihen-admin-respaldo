@@ -69,3 +69,23 @@ body{background:linear-gradient(180deg,#fff 0,#fffaf6 45%,#fff 100%)}
   .quick-product-fields{grid-template-columns:1fr 1fr}
   .quick-product-fields .quick-add{grid-column:1/-1}
 }
+
+/* Navegación móvil reforzada */
+.sidebar-overlay{display:none;border:0;margin:0;padding:0;background:rgba(35,25,20,.42);backdrop-filter:blur(2px)}
+@media(max-width:820px){
+  body.menu-open{overflow:hidden}
+  .sidebar{
+    top:0;bottom:0;left:0!important;width:min(82vw,285px);height:100dvh;
+    transform:translateX(-105%);transition:transform .24s ease;z-index:160;
+    box-shadow:18px 0 55px rgba(48,32,24,.18);overflow-y:auto;overscroll-behavior:contain
+  }
+  .sidebar.open{transform:translateX(0)}
+  .sidebar-overlay{
+    display:block;position:fixed;inset:0;z-index:150;opacity:0;visibility:hidden;
+    pointer-events:none;transition:opacity .2s ease,visibility .2s ease
+  }
+  .sidebar-overlay.open{opacity:1;visibility:visible;pointer-events:auto}
+  .mobile-menu{position:relative;z-index:40;min-width:44px;min-height:44px;touch-action:manipulation;cursor:pointer}
+  .mobile-menu:active{transform:scale(.96)}
+}
+@media(min-width:821px){.sidebar-overlay{display:none!important}}

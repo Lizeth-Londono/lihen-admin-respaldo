@@ -50,10 +50,25 @@ function showPasswordReset(){
 } 
 async function renderApp(){app.innerHTML=shell('<div id="viewRoot"></div>');await refresh();bindGlobal();}
 async function refresh(){const root=$('#viewRoot');if(!root)return;root.innerHTML=await renderRoute();bindContent();}
+function setMobileMenu(open){
+ const sidebar=$('#sidebar');
+ const overlay=$('#sidebarOverlay');
+ const button=$('#menuBtn');
+ if(!sidebar)return;
+ sidebar.classList.toggle('open',Boolean(open));
+ overlay?.classList.toggle('open',Boolean(open));
+ button?.setAttribute('aria-expanded',String(Boolean(open)));
+ document.body.classList.toggle('menu-open',Boolean(open));
+}
+function toggleMobileMenu(){
+ const sidebar=$('#sidebar');
+ setMobileMenu(!sidebar?.classList.contains('open'));
+}
 function bindGlobal(){
  $$('[data-route]').forEach(b=>b.addEventListener('click',()=>navigate(b.dataset.route)));
- $('#logoutBtn').addEventListener('click',async()=>{await signOut();renderLogin()});
- $('#menuBtn')?.addEventListener('click',()=>$('#sidebar').classList.toggle('open'));
+ $('#logoutBtn')?.addEventListener('click',async()=>{setMobileMenu(false);await signOut();renderLogin()});
+ $('#menuBtn')?.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();toggleMobileMenu()});
+ $('#sidebarOverlay')?.addEventListener('click',()=>setMobileMenu(false));
  bindContent();
 }
 function bindContent(){
@@ -69,13 +84,26 @@ function bindContent(){
  $('#supplierSearch')?.addEventListener('input',e=>{const q=e.target.value.trim().toLowerCase();$$('.supplier-card').forEach(card=>card.hidden=q&&!card.innerText.toLowerCase().includes(q));});
  $('#productVisibility')?.addEventListener('change',e=>{$$('tbody tr').forEach(tr=>{const text=tr.innerText.toLowerCase();tr.hidden=e.target.value==='visible'&&!text.includes('publicado')||e.target.value==='hidden'&&!text.includes('oculto');});});
 }
-async function navigate(route){state.route=route;$('#sidebar')?.classList.remove('open');app.innerHTML=shell('<div id="viewRoot"></div>');await refresh();bindGlobal();}
+async function navigate(route){state.route=route;setMobileMenu(false);app.innerHTML=shell('<div id="viewRoot"></div>');await refresh();bindGlobal();}
 function action(name,dataset={}){({
  'new-order':newOrder,'new-product':newProduct,'new-supplier':newSupplier,'new-customer':newCustomer,'import-catalog':importCatalog,
  'import-inventory':importInventory,'import-bundled-inventory':importBundledInventory,'import-suppliers':importSuppliers,'import-customers':importCustomers,
  'inventory-adjustment':inventoryAdjustment,
  'generate-receipt':()=>toast('Abre un pedido para generar su comprobante.','warning')
 }[name]||(()=>{}))();}
+document.addEventListener('click', e => {
+  const menuButton=e.target.closest('#menuBtn');
+  if(menuButton){
+    e.preventDefault();
+    e.stopPropagation();
+    toggleMobileMenu();
+    return;
+  }
+  if(e.target.closest('#sidebarOverlay')){
+    setMobileMenu(false);
+    return;
+  }
+});
 document.addEventListener('click', e => {
   const forgotButton = e.target.closest('#forgotPasswordBtn');
   if(forgotButton){
@@ -84,5 +112,5 @@ document.addEventListener('click', e => {
   }
 });
 document.addEventListener('lihen:refresh',refresh);
-document.addEventListener('keydown',e=>{if(e.key==='Escape')closeModal()});
+document.addEventListener('keydown',e=>{if(e.key==='Escape'){setMobileMenu(false);closeModal()}});
 boot();

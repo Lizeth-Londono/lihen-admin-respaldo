@@ -144,6 +144,14 @@ export function shell(content) {
         </div>
       </aside>
 
+      <button
+        type="button"
+        class="sidebar-overlay"
+        id="sidebarOverlay"
+        aria-label="Cerrar menú"
+        tabindex="-1"
+      ></button>
+
       <div class="workspace">
         <header class="topbar">
           <button
@@ -151,6 +159,8 @@ export function shell(content) {
             id="menuBtn"
             type="button"
             aria-label="Abrir menú"
+            aria-controls="sidebar"
+            aria-expanded="false"
           >
             ☰
           </button>
