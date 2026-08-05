@@ -5,7 +5,13 @@ export const dateTime = value => value ? new Intl.DateTimeFormat('es-CO', { date
 export const dateOnly = value => value ? new Intl.DateTimeFormat('es-CO', { dateStyle:'medium' }).format(new Date(`${value}T12:00:00`)) : '—';
 export const escapeHtml = value => String(value ?? '').replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
 export const normalizePhone = value => String(value || '').replace(/\D/g, '');
-export const whatsappUrl = (phone, message) => `https://wa.me/${normalizePhone(phone)}?text=${encodeURIComponent(message)}`;
+export const colombiaPhone = value => {
+  let phone=normalizePhone(value);
+  if(phone.startsWith('00')) phone=phone.slice(2);
+  if(phone.length===10) phone=`57${phone}`;
+  return phone;
+};
+export const whatsappUrl = (phone, message) => `https://wa.me/${colombiaPhone(phone)}?text=${encodeURIComponent(message)}`;
 export const initials = name => String(name || 'LI').split(/\s+/).slice(0,2).map(x => x[0]).join('').toUpperCase();
 export const debounce = (fn, wait=250) => { let t; return (...args) => { clearTimeout(t); t=setTimeout(() => fn(...args), wait); }; };
 export const statusLabel = value => ({

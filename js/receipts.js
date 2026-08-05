@@ -2,6 +2,7 @@ import { supabase } from './supabase.js';
 import { state } from './store.js';
 import { $, escapeHtml, money, dateTime, whatsappUrl } from './utils.js';
 import { modal, toast } from './ui.js';
+import { APP_CONFIG } from './config.js';
 
 function paymentLabel(value){
   return ({
@@ -23,7 +24,7 @@ export async function openReceipt(order){
   if(error){toast(error.message,'danger');return;}
 
   const receiptNumber=`CP-${data.order_number.replace('LH-','')}`;
-  const message=`Hola ${data.customer?.full_name||''} 😊\n\nTu pedido ${data.order_number} en LIHEN.CO está confirmado.\n\nTotal: ${money(data.total)}\nMedio de pago: ${paymentLabel(data.payment_method)}\nDomicilio: ${money(data.delivery_cost)}\n\nGracias por confiar en LIHEN.CO. ✨`;
+  const message=`Hola ${data.customer?.full_name||''} 😊\n\nTe compartimos el comprobante de tu pedido ${data.order_number} en LIHEN.CO.\n\nTotal: ${money(data.total)}\nMedio de pago: ${paymentLabel(data.payment_method)}\nEstado: ${data.status}\n\nCatálogo: ${APP_CONFIG.catalogUrl}\nInstagram: ${APP_CONFIG.instagramUrl}\n\nGracias por confiar en LIHEN.CO. ✨`;
 
   modal('Comprobante de pedido',`
     <article class="receipt-sheet" id="receiptSheet">
@@ -49,7 +50,7 @@ export async function openReceipt(order){
       </div>
       <div class="receipt-payment"><div><span>Medio de pago</span><b>${escapeHtml(paymentLabel(data.payment_method))}</b></div><div><span>Estado del pago</span><b>${escapeHtml(data.payment_status)}</b></div></div>
       ${Number(data.delivery_cost)===0?'<div class="receipt-gift"><b>🎉 Domicilio sin costo</b><p>Beneficio especial de inauguración LIHEN.</p></div>':''}
-      <footer class="receipt-footer"><p>Gracias por confiar en LIHEN.CO.</p><span>Beauty Care · Style</span></footer>
+      <footer class="receipt-footer"><p>Gracias por elegir LIHEN.CO</p><span>Beauty Care · Style</span><div class="receipt-links"><a href="${APP_CONFIG.catalogUrl}">Catálogo</a> · <a href="${APP_CONFIG.instagramUrl}">Instagram</a></div></footer>
     </article>`,{
       wide:true,
       footer:`<button class="button ghost" id="printReceiptBtn">Imprimir / Guardar PDF</button><a class="button whatsapp" target="_blank" href="${whatsappUrl(data.customer?.whatsapp,message)}">Enviar mensaje por WhatsApp</a>`

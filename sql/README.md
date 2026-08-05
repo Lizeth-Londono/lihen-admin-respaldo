@@ -22,3 +22,5 @@ Debe ejecutarse después de `002_storage_and_security.sql`.
 
 - `004_supplier_orders_and_payments.sql`: solicitudes a proveedores, recepción y pagos.
 - `005_public_catalog_view.sql`: vista pública para alimentar el catálogo.
+
+- 008_edicion_pedidos_y_whatsapp.sql: edición transaccional, reservas diferenciales, auditoría y flujo WhatsApp.

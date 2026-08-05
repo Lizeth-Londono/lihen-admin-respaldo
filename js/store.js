@@ -67,7 +67,7 @@ export async function loadProducts(search=''){
   const {data,error}=await q.limit(300); if(error) throw error; state.products=data||[]; return state.products;
 }
 export async function loadOrders(search=''){
-  let q=supabase.from('orders').select('*,customer:customers(id,full_name,whatsapp),items:order_items(id,quantity,unit_price,line_total,product_name_snapshot,quantity_to_source,quantity_received)').order('created_at',{ascending:false});
+  let q=supabase.from('orders').select('*,customer:customers(id,full_name,whatsapp),items:order_items(id,product_id,variant_id,variant_snapshot,quantity,unit_price,line_total,product_name_snapshot,quantity_from_stock,quantity_to_source,quantity_reserved,quantity_received)').order('created_at',{ascending:false});
   if(search) q=q.or(`order_number.ilike.%${search}%`);
   const {data,error}=await q.limit(200); if(error) throw error; state.orders=data||[]; return state.orders;
 }
