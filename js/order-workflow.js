@@ -98,80 +98,248 @@ export async function openOrderEditor(order=null){
     await Promise.all([loadProducts(),loadCustomers()]);
     order=order?await fetchFullOrder(order):null;
   }catch(err){toast(`No fue posible cargar el pedido: ${err.message}`,'danger');return;}
+
   if(order?.status==='entregado'){
     toast('Los pedidos entregados están bloqueados para proteger inventario y reportes.','warning');
     return;
   }
+
   modal(order?`Editar ${order.order_number}`:'Crear pedido LIHEN',editorMarkup(order),{wide:true});
-  const form=$('#orderEditorForm'), items=$('#orderItems'), quick=$('#quickProduct'), quickQty=$('#quickQuantity'), quickPrice=$('#quickPrice');
+
+  const form=$('#orderEditorForm');
+  const itemsContainer=$('#orderItems');
+  const quick=$('#quickProduct');
+  const quickQty=$('#quickQuantity');
+  const quickPrice=$('#quickPrice');
   $('#discountType').value=order?.discount_type||'ninguno';
 
-  function calculate(){
-    let subtotal=0,units=0;
-    const rows=$$('.order-row',items);
-    rows.forEach(r=>{const q=Number($('.item-qty',r).value)||0;subtotal+=q*(Number($('.item-price',r).value)||0);units+=q;const line=$('.item-line-total',r);if(line)line.textContent=money(q*(Number($('.item-price',r).value)||0));});
-    const type=$('#discountType').value,value=Number($('#discountValue').value)||0;
-    const discount=type==='porcentaje'?subtotal*value/100:type==='valor_fijo'?Math.min(value,subtotal):0;
-    const delivery=Number($('#deliveryCost').value)||0,total=Math.max(0,subtotal-discount+delivery);
-    $('#orderTotals').innerHTML=`<div><span>Subtotal</span><b>${money(subtotal)}</b></div><div><span>Descuento</span><b>− ${money(discount)}</b></div><div><span>Domicilio</span><b>${money(delivery)}</b></div><div class="total"><span>Total</span><strong>${money(total)}</strong></div>`;
-    $('#orderItemCount').textContent=`${rows.length} producto(s)`;
-    $('#summaryProducts').textContent=rows.length;
-    $('#summaryUnits').textContent=units;
-    $('#emptyOrderItems').hidden=rows.length>0;
-    return{subtotal,discount,delivery,total};
+  // Única fuente de verdad durante la edición. La interfaz se vuelve a renderizar
+  // desde este arreglo; agregar, quitar, cantidades, vista previa y guardado usan
+  // exactamente los mismos datos.
+  let editorItems=(order?.items||[]).map(item=>{
+    const product=state.products.find(p=>p.id===item.product_id);
+    return {
+      product_id:item.product_id,
+      variant_id:item.variant_id||null,
+      variant_snapshot:item.variant_snapshot||null,
+      name:item.product_name_snapshot||product?.name||'Producto',
+      sku:product?.sku||product?.brand||'Sin SKU',
+      available_stock:Number(product?.inventory?.[0]?.available_stock)||0,
+      quantity:Math.max(1,Number(item.quantity)||1),
+      unit_price:Number(item.unit_price)||0
+    };
+  });
+
+  function totalsFromState(){
+    const subtotal=editorItems.reduce((sum,item)=>sum+(item.quantity*item.unit_price),0);
+    const units=editorItems.reduce((sum,item)=>sum+item.quantity,0);
+    const type=$('#discountType').value;
+    const value=Number($('#discountValue').value)||0;
+    const discount=type==='porcentaje'?subtotal*Math.min(value,100)/100:type==='valor_fijo'?Math.min(value,subtotal):0;
+    const delivery=Number($('#deliveryCost').value)||0;
+    return {subtotal,units,discount,delivery,total:Math.max(0,subtotal-discount+delivery)};
   }
 
-  function removeItem(row){
-    const name=$('.order-product-name b',row)?.textContent||'este producto';
-    if(!window.confirm(`¿Deseas retirar ${name} del pedido?`))return;
-    row.remove();calculate();toast('Producto retirado del pedido');
+  function updateSummary(){
+    const values=totalsFromState();
+    $('#orderTotals').innerHTML=`<div><span>Subtotal</span><b>${money(values.subtotal)}</b></div><div><span>Descuento</span><b>− ${money(values.discount)}</b></div><div><span>Domicilio</span><b>${money(values.delivery)}</b></div><div class="total"><span>Total</span><strong>${money(values.total)}</strong></div>`;
+    $('#orderItemCount').textContent=`${editorItems.length} producto(s)`;
+    $('#summaryProducts').textContent=editorItems.length;
+    $('#summaryUnits').textContent=values.units;
+    $('#emptyOrderItems').hidden=editorItems.length>0;
+    return values;
   }
 
-  function addItem(productId,quantity=1,unitPrice=null,{silent=false}={}){
-    const product=state.products.find(p=>p.id===productId); if(!product)return;
-    const existing=$$('.order-row',items).find(r=>$('.item-product-id',r).value===productId);
-    if(existing){
-      $('.item-qty',existing).value=Math.max(1,Number($('.item-qty',existing).value)+Number(quantity));
-      calculate();
-      if(!silent)toast('Este producto ya estaba en el pedido. Su cantidad fue aumentada.','warning');
+  function renderItems(){
+    itemsContainer.innerHTML=editorItems.map((item,index)=>`
+      <article class="order-row" data-item-index="${index}">
+        <div class="order-product-name"><b>${escapeHtml(item.name)}</b><small>${escapeHtml(item.sku)} · ${item.available_stock} libre(s)</small></div>
+        <div class="quantity-stepper">
+          <button type="button" class="qty-minus" data-index="${index}" aria-label="Restar una unidad">−</button>
+          <input class="item-qty" data-index="${index}" type="number" min="1" value="${item.quantity}">
+          <button type="button" class="qty-plus" data-index="${index}" aria-label="Sumar una unidad">+</button>
+        </div>
+        <label class="price-field">Precio<input class="item-price" data-index="${index}" type="number" min="0" value="${item.unit_price}"></label>
+        <div class="line-total"><small>Subtotal</small><b>${money(item.quantity*item.unit_price)}</b></div>
+        <div class="stock-note">${item.available_stock>0?`${item.available_stock} disponible(s) físicamente`:'Se debe conseguir con proveedor'}</div>
+        <button type="button" class="remove-row" data-index="${index}" aria-label="Quitar ${escapeHtml(item.name)}">Eliminar</button>
+      </article>`).join('');
+
+    $$('.qty-plus',itemsContainer).forEach(button=>button.addEventListener('click',()=>{
+      const index=Number(button.dataset.index);
+      editorItems[index].quantity+=1;
+      renderItems();
+      toast('Cantidad actualizada');
+    }));
+    $$('.qty-minus',itemsContainer).forEach(button=>button.addEventListener('click',()=>{
+      const index=Number(button.dataset.index);
+      if(editorItems[index].quantity<=1)return toast('La cantidad mínima es 1. Usa Eliminar para retirarlo.','warning');
+      editorItems[index].quantity-=1;
+      renderItems();
+      toast('Cantidad actualizada');
+    }));
+    $$('.item-qty',itemsContainer).forEach(input=>input.addEventListener('input',()=>{
+      const index=Number(input.dataset.index);
+      editorItems[index].quantity=Math.max(1,Number(input.value)||1);
+      updateSummary();
+      const line=input.closest('.order-row')?.querySelector('.line-total b');
+      if(line)line.textContent=money(editorItems[index].quantity*editorItems[index].unit_price);
+    }));
+    $$('.item-price',itemsContainer).forEach(input=>input.addEventListener('input',()=>{
+      const index=Number(input.dataset.index);
+      editorItems[index].unit_price=Math.max(0,Number(input.value)||0);
+      updateSummary();
+      const line=input.closest('.order-row')?.querySelector('.line-total b');
+      if(line)line.textContent=money(editorItems[index].quantity*editorItems[index].unit_price);
+    }));
+    $$('.remove-row',itemsContainer).forEach(button=>button.addEventListener('click',()=>{
+      const index=Number(button.dataset.index);
+      const item=editorItems[index];
+      if(!window.confirm(`¿Deseas retirar ${item.name} del pedido?`))return;
+      editorItems.splice(index,1);
+      renderItems();
+      toast('Producto retirado. Pulsa Guardar cambios para confirmar.');
+    }));
+    updateSummary();
+  }
+
+  function addProduct(productId,quantity=1,unitPrice=null){
+    const product=state.products.find(p=>p.id===productId);
+    if(!product)return toast('No se encontró el producto seleccionado.','danger');
+    const requested=Math.max(1,Number(quantity)||1);
+    const existingIndex=editorItems.findIndex(item=>item.product_id===productId&&!item.variant_id);
+    if(existingIndex>=0){
+      editorItems[existingIndex].quantity+=requested;
+      renderItems();
+      toast('Este producto ya estaba en el pedido. Su cantidad fue aumentada.','warning');
       return;
     }
-    const inv=product.inventory?.[0]||{}, row=document.createElement('div'); row.className='order-row';
-    row.innerHTML=`<input class="item-product-id" type="hidden" value="${product.id}"><div class="order-product-name"><b>${escapeHtml(product.name)}</b><small>${escapeHtml(product.sku||product.brand||'Sin SKU')} · ${Number(inv.available_stock)||0} libre(s)</small></div><div class="quantity-stepper"><button type="button" class="qty-minus" aria-label="Restar">−</button><input class="item-qty" type="number" min="1" value="${Number(quantity)||1}"><button type="button" class="qty-plus" aria-label="Sumar">+</button></div><label class="price-field">Precio<input class="item-price" type="number" min="0" value="${unitPrice ?? (Number(product.sale_price)||0)}"></label><div class="line-total"><small>Subtotal</small><b class="item-line-total">${money((Number(quantity)||1)*(unitPrice ?? (Number(product.sale_price)||0)))}</b></div><div class="stock-note">${Number(inv.available_stock)>0?`${Number(inv.available_stock)} disponible(s) físicamente`:'Se debe conseguir con proveedor'}</div><button type="button" class="remove-row" aria-label="Quitar producto">Eliminar</button>`;
-    items.append(row);
-    $('.qty-plus',row).addEventListener('click',()=>{$('.item-qty',row).value=Number($('.item-qty',row).value)+1;calculate();toast('Cantidad actualizada');});
-    $('.qty-minus',row).addEventListener('click',()=>{const input=$('.item-qty',row);if(Number(input.value)<=1)return toast('La cantidad mínima es 1. Usa Eliminar para retirarlo.','warning');input.value=Number(input.value)-1;calculate();toast('Cantidad actualizada');});
-    ['.item-qty','.item-price'].forEach(sel=>$(sel,row).addEventListener('input',calculate));
-    $('.remove-row',row).addEventListener('click',()=>removeItem(row));
-    calculate();
-    if(!silent)toast('Producto agregado al pedido');
+    const inventory=product.inventory?.[0]||{};
+    editorItems.push({
+      product_id:product.id,
+      variant_id:null,
+      variant_snapshot:null,
+      name:product.name,
+      sku:product.sku||product.brand||'Sin SKU',
+      available_stock:Number(inventory.available_stock)||0,
+      quantity:requested,
+      unit_price:unitPrice===null?Number(product.sale_price)||0:Math.max(0,Number(unitPrice)||0)
+    });
+    renderItems();
+    toast('Producto agregado al pedido');
   }
 
   quick.addEventListener('change',()=>{quickPrice.value=quick.selectedOptions[0]?.dataset.price||0;});
-  $('#quickAddProduct').addEventListener('click',()=>{if(!quick.value)return toast('Selecciona un producto','danger');addItem(quick.value,quickQty.value,Number(quickPrice.value));quick.value='';quickQty.value=1;quickPrice.value=0;quick.focus();});
-  ['discountType','discountValue','deliveryCost'].forEach(id=>$('#'+id).addEventListener('input',calculate));
-  for(const item of order?.items||[]) addItem(item.product_id,item.quantity,item.unit_price,{silent:true});
-  calculate();
+  $('#quickAddProduct').addEventListener('click',()=>{
+    if(!quick.value)return toast('Selecciona un producto','danger');
+    addProduct(quick.value,quickQty.value,quickPrice.value);
+    quick.value='';quickQty.value=1;quickPrice.value=0;quick.focus();
+  });
+  ['discountType','discountValue','deliveryCost'].forEach(id=>$('#'+id).addEventListener('input',updateSummary));
 
-  $('#previewFromEditor').addEventListener('click',()=>openSummaryPreview(buildDraftOrder(form,items,order||{}),{returnToEditor:true}));
+  renderItems();
 
-  form.addEventListener('submit',async e=>{
-    e.preventDefault();
-    const button=$('button[type="submit"]',form),fd=Object.fromEntries(new FormData(form)),rows=$$('.order-row',items);
-    if(!rows.length)return toast('Agrega al menos un producto','danger');
-    const payload=rows.map(r=>({product_id:$('.item-product-id',r).value,variant_id:null,variant_snapshot:null,quantity:Number($('.item-qty',r).value),unit_price:Number($('.item-price',r).value)}));
-    button.disabled=true;button.textContent=order?'Guardando…':'Creando…';
+  $('#previewFromEditor').addEventListener('click',()=>{
+    const draft=buildDraftOrderFromState(form,editorItems,order||{});
+    openSummaryPreview(draft,{returnToEditor:true});
+  });
+
+  form.addEventListener('submit',async event=>{
+    event.preventDefault();
+    if(!editorItems.length)return toast('Agrega al menos un producto','danger');
+    const button=$('button[type="submit"]',form);
+    const fields=Object.fromEntries(new FormData(form));
+    const payload=editorItems.map(item=>({
+      product_id:item.product_id,
+      variant_id:item.variant_id,
+      variant_snapshot:item.variant_snapshot,
+      quantity:item.quantity,
+      unit_price:item.unit_price
+    }));
+
+    button.disabled=true;
+    button.textContent=order?'Guardando…':'Creando…';
     try{
       if(order){
-        const {data,error}=await supabase.rpc('update_order_atomic',{p_order_id:order.id,p_customer_id:fd.customer_id,p_payment_method:fd.payment_method,p_discount_type:fd.discount_type,p_discount_value:Number(fd.discount_value)||0,p_delivery_cost:Number(fd.delivery_cost)||0,p_internal_notes:fd.internal_notes||null,p_status:fd.status,p_items:payload});if(error)throw error;
-        closeModal();toast(`Pedido ${data.order_number} actualizado correctamente`);
+        const {data,error}=await supabase.rpc('update_order_atomic',{
+          p_order_id:order.id,
+          p_customer_id:fields.customer_id,
+          p_payment_method:fields.payment_method,
+          p_discount_type:fields.discount_type,
+          p_discount_value:Number(fields.discount_value)||0,
+          p_delivery_cost:Number(fields.delivery_cost)||0,
+          p_internal_notes:fields.internal_notes||null,
+          p_status:fields.status,
+          p_items:payload
+        });
+        if(error)throw error;
+
+        // Verificación real: no mostramos éxito hasta comprobar que Supabase
+        // guardó exactamente las líneas que permanecen en el editor.
+        const saved=await fetchFullOrder({...order,id:order.id});
+        const expected=new Map(payload.map(item=>[`${item.product_id}:${item.variant_id||''}`,Number(item.quantity)]));
+        const actual=new Map((saved.items||[]).map(item=>[`${item.product_id}:${item.variant_id||''}`,Number(item.quantity)]));
+        const matches=expected.size===actual.size&&[...expected].every(([key,quantity])=>actual.get(key)===quantity);
+        if(!matches)throw new Error('Supabase respondió, pero los productos guardados no coinciden con la edición. Recarga e inténtalo nuevamente.');
+
+        closeModal();
+        toast(`Pedido ${data?.order_number||order.order_number} actualizado correctamente`);
       }else{
-        const {data,error}=await supabase.rpc('create_order_atomic',{p_customer_id:fd.customer_id,p_delivery_address_id:null,p_payment_method:fd.payment_method,p_discount_type:fd.discount_type,p_discount_value:Number(fd.discount_value)||0,p_delivery_cost:Number(fd.delivery_cost)||0,p_discount_reason:null,p_customer_notes:null,p_internal_notes:fd.internal_notes||null,p_items:payload});if(error)throw error;
-        closeModal();toast(`Pedido ${data.order_number} creado y stock reservado`);
+        const {data,error}=await supabase.rpc('create_order_atomic',{
+          p_customer_id:fields.customer_id,
+          p_delivery_address_id:null,
+          p_payment_method:fields.payment_method,
+          p_discount_type:fields.discount_type,
+          p_discount_value:Number(fields.discount_value)||0,
+          p_delivery_cost:Number(fields.delivery_cost)||0,
+          p_discount_reason:null,
+          p_customer_notes:null,
+          p_internal_notes:fields.internal_notes||null,
+          p_items:payload
+        });
+        if(error)throw error;
+        closeModal();
+        toast(`Pedido ${data.order_number} creado y stock reservado`);
       }
       document.dispatchEvent(new CustomEvent('lihen:refresh'));
-    }catch(err){console.error('Error al guardar pedido',err);button.disabled=false;button.textContent=order?'Guardar cambios':'Crear pedido';toast(`No fue posible guardar los cambios: ${err.message}`,'danger');}
+    }catch(err){
+      console.error('Error al guardar pedido',err);
+      button.disabled=false;
+      button.textContent=order?'Guardar cambios':'Crear pedido';
+      toast(`No fue posible guardar los cambios: ${err.message}`,'danger');
+    }
   });
+}
+
+function buildDraftOrderFromState(form,editorItems,baseOrder={}){
+  const fields=Object.fromEntries(new FormData(form));
+  const subtotal=editorItems.reduce((sum,item)=>sum+item.quantity*item.unit_price,0);
+  const discountType=fields.discount_type||'ninguno';
+  const discountValue=Number(fields.discount_value)||0;
+  const discount_amount=discountType==='porcentaje'?subtotal*Math.min(discountValue,100)/100:discountType==='valor_fijo'?Math.min(discountValue,subtotal):0;
+  const delivery_cost=Number(fields.delivery_cost)||0;
+  const customer=state.customers.find(c=>c.id===fields.customer_id)||baseOrder.customer;
+  return {
+    ...baseOrder,
+    customer,
+    customer_id:fields.customer_id,
+    items:editorItems.map(item=>({
+      product_id:item.product_id,
+      product_name_snapshot:item.name,
+      quantity:item.quantity,
+      unit_price:item.unit_price,
+      line_total:item.quantity*item.unit_price,
+      quantity_to_source:Math.max(0,item.quantity-item.available_stock)
+    })),
+    subtotal,
+    discount_type:discountType,
+    discount_value:discountValue,
+    discount_amount,
+    delivery_cost,
+    total:Math.max(0,subtotal-discount_amount+delivery_cost),
+    payment_method:fields.payment_method,
+    status:fields.status||baseOrder.status||'solicitud_recibida'
+  };
 }
 
 function productLines(order){const lines=(order.items||[]).map(i=>`• ${i.product_name_snapshot} — ${i.quantity} ${i.quantity===1?'unidad':'unidades'} — ${money(i.line_total)}`);return lines.length?lines.join('\n'):'• No se encontraron productos asociados. Revisa el pedido antes de enviarlo.';}

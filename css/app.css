@@ -89,3 +89,21 @@ body{background:linear-gradient(180deg,#fff 0,#fffaf6 45%,#fff 100%)}
   .mobile-menu:active{transform:scale(.96)}
 }
 @media(min-width:821px){.sidebar-overlay{display:none!important}}
+
+/* ==========================================================
+   Corrección final: productos visibles durante edición
+   ========================================================== */
+.order-editor{display:flex;flex-direction:column;gap:0}
+.order-editor-sticky{position:static!important;z-index:auto!important;background:#fff}
+.order-items-section{display:block!important;position:relative!important;z-index:2!important;background:#fff!important;padding:20px 0 24px!important;border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+.order-items-section .section-title{margin:0 0 14px}
+.order-builder.compact{display:grid!important;gap:12px;max-height:420px!important;min-height:120px;overflow-y:auto!important;overflow-x:hidden;padding:4px 8px 8px 2px;scrollbar-gutter:stable}
+.order-row{position:relative!important;opacity:1!important;visibility:visible!important;background:#fff!important;border:1px solid var(--line);box-shadow:0 5px 16px rgba(74,45,31,.05);min-height:86px}
+.order-editor-summary{position:static!important;z-index:auto!important;background:#fff;padding-top:22px}
+.sticky-actions{position:sticky;bottom:-25px;background:#fff;padding:14px 0 6px;z-index:6;border-top:1px solid var(--line)}
+
+@media(max-width:700px){
+  .order-builder.compact{max-height:48vh!important;min-height:150px}
+  .order-row{padding:14px;gap:12px}
+  .sticky-actions{bottom:-25px}
+}
