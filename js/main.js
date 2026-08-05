@@ -4,7 +4,7 @@ import { shell, login, passwordSetup, toast, closeModal, modal } from './ui.js';
 import { renderRoute, showOrder } from './views.js';
 import { newCustomer, newSupplier, newProduct, newOrder, importCatalog, inventoryAdjustment } from './forms.js';
 import { editCustomer, editSupplier, editProduct } from './editors.js';
-import { importInventory, importSuppliers, importCustomers } from './imports.js';
+import { importInventory, importBundledInventory, importSuppliers, importCustomers } from './imports.js';
 
 const app=$('#app');
 async function boot(){app.innerHTML='<div class="splash"><img src="assets/logo-lihen.jpg" alt="LIHEN"><span></span><p>Preparando LIHEN Admin…</p></div>';try{await loadSession();if(isAuthCallback()&&state.session){renderPasswordSetup();return;}state.session?await renderApp():renderLogin();}catch(e){console.error(e);renderLogin('No fue posible conectar con Supabase. Revisa la conexión.')};}
@@ -71,7 +71,7 @@ function bindContent(){
 async function navigate(route){state.route=route;$('#sidebar')?.classList.remove('open');app.innerHTML=shell('<div id="viewRoot"></div>');await refresh();bindGlobal();}
 function action(name,dataset={}){({
  'new-order':newOrder,'new-product':newProduct,'new-supplier':newSupplier,'new-customer':newCustomer,'import-catalog':importCatalog,
- 'import-inventory':importInventory,'import-suppliers':importSuppliers,'import-customers':importCustomers,
+ 'import-inventory':importInventory,'import-bundled-inventory':importBundledInventory,'import-suppliers':importSuppliers,'import-customers':importCustomers,
  'inventory-adjustment':inventoryAdjustment,
  'generate-receipt':()=>toast('Abre un pedido para generar su comprobante.','warning')
 }[name]||(()=>{}))();}
