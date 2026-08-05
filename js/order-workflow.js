@@ -16,9 +16,29 @@ function productOption(p){
 
 async function fetchFullOrder(order){
   if(!order?.id) return order;
-  const {data,error}=await supabase.from('orders').select('*,customer:customers(id,full_name,whatsapp),items:order_items(id,product_id,variant_id,variant_snapshot,quantity,unit_price,line_total,product_name_snapshot,quantity_from_stock,quantity_to_source,quantity_reserved,quantity_received)').eq('id',order.id).single();
-  if(error) throw error;
-  return data;
+
+  // Consultamos el encabezado y los productos por separado. Esta estrategia es
+  // más estable que depender únicamente de la relación anidada de PostgREST.
+  const [orderResult, itemsResult] = await Promise.all([
+    supabase
+      .from('orders')
+      .select('*,customer:customers(id,full_name,whatsapp)')
+      .eq('id', order.id)
+      .single(),
+    supabase
+      .from('order_items')
+      .select('id,order_id,product_id,variant_id,variant_snapshot,quantity,unit_price,line_total,product_name_snapshot,quantity_from_stock,quantity_to_source,quantity_reserved,quantity_received')
+      .eq('order_id', order.id)
+      .order('created_at', { ascending: true })
+  ]);
+
+  if(orderResult.error) throw orderResult.error;
+  if(itemsResult.error) throw itemsResult.error;
+
+  return {
+    ...orderResult.data,
+    items: itemsResult.data || []
+  };
 }
 
 function editorMarkup(order){
@@ -154,7 +174,7 @@ export async function openOrderEditor(order=null){
   });
 }
 
-function productLines(order){return (order.items||[]).map(i=>`• ${i.product_name_snapshot} — ${i.quantity} ${i.quantity===1?'unidad':'unidades'} — ${money(i.line_total)}`).join('\n');}
+function productLines(order){const lines=(order.items||[]).map(i=>`• ${i.product_name_snapshot} — ${i.quantity} ${i.quantity===1?'unidad':'unidades'} — ${money(i.line_total)}`);return lines.length?lines.join('\n'):'• No se encontraron productos asociados. Revisa el pedido antes de enviarlo.';}
 export function confirmationMessage(order){return `Hola, ${order.customer?.full_name||''} 👋\n\nGracias por elegir LIHEN.CO ✨\n\nTe compartimos el resumen de tu pedido para que puedas revisarlo:\n\nPedido: ${order.order_number||'Por asignar'}\n\nProductos:\n${productLines(order)}\n\nSubtotal: ${money(order.subtotal)}\nDescuento: ${money(order.discount_amount)}\nDomicilio: ${money(order.delivery_cost)}\nTotal: ${money(order.total)}\n\nMétodo de pago: ${PAYMENT_LABELS[order.payment_method]||'Por confirmar'}\n\nPor favor confírmanos:\n1. Si los productos y cantidades están correctos.\n2. Si deseas agregar o retirar algún producto.\n3. Tu método de pago: efectivo contra entrega, Nequi, llave bancaria o transferencia.\n\nCuando tengamos tu confirmación, continuaremos con la preparación de tu pedido.\n\nConoce nuestro catálogo:\n${APP_CONFIG.catalogUrl}\n\nLIHEN.CO\nBeauty Care | Style`;}
 export function confirmedMessage(order){const pending=(order.items||[]).some(i=>Number(i.quantity_to_source)>0);return `Hola, ${order.customer?.full_name||''} 👋\n\nTu pedido LIHEN.CO fue confirmado correctamente ✨\n\nPedido: ${order.order_number}\nTotal: ${money(order.total)}\nMétodo de pago: ${PAYMENT_LABELS[order.payment_method]||'Por confirmar'}\nEstado: ${statusLabel(order.status)}\n\n${pending?'Algunos productos están siendo solicitados al proveedor. Te mantendremos informada sobre el avance.':'Estamos preparando tus productos. Te avisaremos cuando el pedido esté listo para entrega.'}\n\nGracias por confiar en LIHEN.CO 🤎`;}
 
@@ -163,7 +183,17 @@ export function openSummaryPreview(order,{returnToEditor=false}={}){
   modal('Vista previa para el cliente',`<div class="summary-preview"><div class="preview-brand"><img src="assets/logo-lihen.jpg" alt="LIHEN"><div><p class="eyebrow">RESUMEN DEL PEDIDO</p><h3>${escapeHtml(order.order_number||'Pedido sin guardar')}</h3></div></div><div class="preview-message">${escapeHtml(message).replace(/\n/g,'<br>')}</div><div class="callout"><b>Revisa antes de enviar</b><p>WhatsApp abrirá este texto para que lo revises desde la cuenta corporativa de LIHEN.</p></div></div>`,{wide:true,footer:`<button class="button ghost" data-close-modal>Volver</button><a class="button whatsapp compact-action" target="_blank" rel="noopener noreferrer" href="${whatsappUrl(order.customer?.whatsapp,message)}"><span>◉</span> Enviar resumen</a>`});
 }
 
-export function showOrder(order){
+export async function showOrder(order){
+  try{
+    modal('Cargando pedido', '<div class="loading"><span class="spinner"></span><p>Consultando productos y totales…</p></div>', {wide:true});
+    order = await fetchFullOrder(order);
+  }catch(err){
+    console.error('No fue posible cargar el pedido completo', err);
+    closeModal();
+    toast(`No fue posible cargar los productos del pedido: ${err.message}`, 'danger');
+    return;
+  }
+
   const editable=!['entregado','cancelado'].includes(order.status);
   const canReceipt=order.status==='entregado'&&order.payment_status==='pagado';
   const itemsMarkup=(order.items||[]).length?(order.items||[]).map(i=>`<div><div><b>${escapeHtml(i.product_name_snapshot)}</b><small>${i.quantity} × ${money(i.unit_price)}${i.quantity_to_source?` · ${i.quantity_to_source} por conseguir`:''}</small></div><strong>${money(i.line_total)}</strong></div>`).join(''):'<div class="empty-line-items">No se encontraron productos asociados. Actualiza la página e intenta nuevamente.</div>';
