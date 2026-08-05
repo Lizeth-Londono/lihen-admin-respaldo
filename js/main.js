@@ -33,6 +33,7 @@ import {
 const app = $('#app');
 let bootFinished = false;
 let renderingPasswordSetup = false;
+let passwordResetRequestInProgress = false;
 
 /*
  * Supabase emite PASSWORD_RECOVERY cuando la usuaria llega desde el enlace
@@ -180,10 +181,12 @@ function cleanAuthUrl() {
 }
 
 function showPasswordReset() {
+  const loginEmail = $('#loginForm input[name="email"]')?.value?.trim() || '';
+
   modal(
     'Recuperar contraseña',
     `
-      <form id="resetPasswordForm" class="form-grid">
+      <form id="resetPasswordForm" class="form-grid" novalidate>
         <label class="full">
           Correo de la cofundadora
           <input
@@ -191,6 +194,7 @@ function showPasswordReset() {
             type="email"
             autocomplete="email"
             required
+            value="${loginEmail.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}"
           >
         </label>
 
@@ -215,39 +219,49 @@ function showPasswordReset() {
     `
   );
 
-  const form = $('#resetPasswordForm');
+  window.setTimeout(() => {
+    $('#resetPasswordForm input[name="email"]')?.focus();
+  }, 0);
+}
 
-  if (!form) {
-    toast(
-      'No fue posible abrir la recuperación de contraseña.',
-      'danger'
-    );
+async function handlePasswordResetSubmit(form) {
+  if (passwordResetRequestInProgress) return;
+
+  const emailInput = $('input[name="email"]', form);
+  const button = $('button[type="submit"]', form);
+  const email = emailInput?.value?.trim();
+
+  if (!email) {
+    emailInput?.focus();
+    toast('Escribe el correo de la cofundadora.', 'danger');
     return;
   }
 
-  form.addEventListener('submit', async (event) => {
-    event.preventDefault();
+  if (!emailInput.checkValidity()) {
+    emailInput.reportValidity();
+    return;
+  }
 
-    const button = $('button[type="submit"]', event.currentTarget);
-    const email = new FormData(event.currentTarget).get('email');
+  passwordResetRequestInProgress = true;
+  button.disabled = true;
+  button.textContent = 'Enviando…';
 
-    button.disabled = true;
-    button.textContent = 'Enviando…';
-
-    try {
-      clearPasswordRecovery();
-      await sendPasswordReset(email);
-      closeModal();
-      toast('Revisa tu correo para continuar');
-    } catch (error) {
-      button.disabled = false;
-      button.textContent = 'Enviar enlace';
-      toast(
-        error.message || 'No fue posible enviar el enlace.',
-        'danger'
-      );
-    }
-  });
+  try {
+    clearPasswordRecovery();
+    await sendPasswordReset(email);
+    closeModal();
+    toast('Enlace enviado. Revisa tu correo y también la carpeta de spam.');
+  } catch (error) {
+    console.error('Error al enviar recuperación:', error);
+    button.disabled = false;
+    button.textContent = 'Enviar enlace';
+    toast(
+      error?.message || 'No fue posible enviar el enlace.',
+      'danger'
+    );
+  } finally {
+    passwordResetRequestInProgress = false;
+  }
 }
 
 async function renderApp() {
@@ -398,6 +412,15 @@ function action(name, dataset = {}) {
   const selectedAction = actions[name] || (() => {});
   selectedAction(dataset);
 }
+
+document.addEventListener('submit', (event) => {
+  const form = event.target.closest('#resetPasswordForm');
+
+  if (!form) return;
+
+  event.preventDefault();
+  handlePasswordResetSubmit(form);
+});
 
 document.addEventListener('click', (event) => {
   const forgotButton = event.target.closest('#forgotPasswordBtn');
