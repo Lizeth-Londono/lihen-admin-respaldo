@@ -8,6 +8,23 @@ import { openReceipt } from './receipts.js';
 const PAYMENT_LABELS={sin_definir:'Por confirmar',efectivo_contra_entrega:'Efectivo contra entrega',nequi:'Nequi',llave_bancaria:'Llave bancaria',transferencia:'Transferencia bancaria',otro:'Otro'};
 const ORDER_STATUSES=['solicitud_recibida','validando_disponibilidad','pendiente_proveedor','productos_solicitados','recepcion_parcial','pedido_completo','esperando_medio_pago','confirmado_cliente','preparando_entrega','enviado','entregado','cancelado'];
 
+function itemKey(item){ return `${item.product_id}:${item.variant_id||''}`; }
+function normalizedPayload(items){
+  return items.map(item=>({
+    product_id:String(item.product_id),
+    variant_id:item.variant_id||null,
+    variant_snapshot:item.variant_snapshot||null,
+    quantity:Math.max(1,Number(item.quantity)||1),
+    unit_price:Math.max(0,Number(item.unit_price)||0)
+  }));
+}
+function publishOrderDebug(entry){
+  const snapshot={...entry,created_at:new Date().toISOString()};
+  window.__LIHEN_LAST_ORDER_SAVE__=snapshot;
+  try{ sessionStorage.setItem('lihen:last-order-save',JSON.stringify(snapshot)); }catch(_err){}
+  return snapshot;
+}
+
 function productOption(p){
   const inv=p.inventory?.[0]||{};
   const search=[p.name,p.sku,p.brand,p.category].filter(Boolean).join(' · ');
@@ -116,6 +133,7 @@ export async function openOrderEditor(order=null){
   // Única fuente de verdad durante la edición. La interfaz se vuelve a renderizar
   // desde este arreglo; agregar, quitar, cantidades, vista previa y guardado usan
   // exactamente los mismos datos.
+  const removedItemKeys=new Set();
   let editorItems=(order?.items||[]).map(item=>{
     const product=state.products.find(p=>p.id===item.product_id);
     return {
@@ -196,7 +214,12 @@ export async function openOrderEditor(order=null){
       const index=Number(button.dataset.index);
       const item=editorItems[index];
       if(!window.confirm(`¿Deseas retirar ${item.name} del pedido?`))return;
+      const before=normalizedPayload(editorItems);
+      removedItemKeys.add(itemKey(item));
       editorItems.splice(index,1);
+      const after=normalizedPayload(editorItems);
+      publishOrderDebug({stage:'removed-locally',order_id:order?.id||null,removed:itemKey(item),before,after});
+      console.info('[LIHEN] Producto retirado localmente', {removed:itemKey(item),before,after});
       renderItems();
       toast('Producto retirado. Pulsa Guardar cambios para confirmar.');
     }));
@@ -249,19 +272,34 @@ export async function openOrderEditor(order=null){
     if(!editorItems.length)return toast('Agrega al menos un producto','danger');
     const button=$('button[type="submit"]',form);
     const fields=Object.fromEntries(new FormData(form));
-    const payload=editorItems.map(item=>({
-      product_id:item.product_id,
-      variant_id:item.variant_id,
-      variant_snapshot:item.variant_snapshot,
-      quantity:item.quantity,
-      unit_price:item.unit_price
-    }));
+    const payload=normalizedPayload(editorItems);
+    const payloadKeys=new Set(payload.map(itemKey));
+    const accidentallyReinserted=[...removedItemKeys].filter(key=>payloadKeys.has(key));
+    if(accidentallyReinserted.length){
+      console.error('[LIHEN] Bloqueo de seguridad: productos eliminados reaparecieron en el payload',accidentallyReinserted);
+      return toast('No se guardó: un producto eliminado reapareció en los datos. Recarga y vuelve a intentarlo.','danger');
+    }
 
     button.disabled=true;
     button.textContent=order?'Guardando…':'Creando…';
     try{
       if(order){
-        const {data,error}=await supabase.rpc('update_order_atomic',{
+        const requestId=`edit-${order.id}-${Date.now()}`;
+        const debugBase=publishOrderDebug({
+          stage:'before-rpc',requestId,order_id:order.id,
+          removed_keys:[...removedItemKeys],payload
+        });
+        console.groupCollapsed(`[LIHEN] Guardar edición ${requestId}`);
+        console.log('Pedido a actualizar:', order.id);
+        console.log('Productos eliminados durante esta edición:', [...removedItemKeys]);
+        console.table(editorItems.map(item=>({
+          key:itemKey(item),product_id:item.product_id,variant_id:item.variant_id||null,
+          name:item.name,quantity:Number(item.quantity),unit_price:Number(item.unit_price)
+        })));
+        console.log('payload.items exacto enviado a Supabase:');
+        console.table(payload);
+
+        const {data,error}=await supabase.rpc('update_order_atomic_v2',{
           p_order_id:order.id,
           p_customer_id:fields.customer_id,
           p_payment_method:fields.payment_method,
@@ -272,18 +310,47 @@ export async function openOrderEditor(order=null){
           p_status:fields.status,
           p_items:payload
         });
-        if(error)throw error;
+        publishOrderDebug({...debugBase,stage:'rpc-response',rpc_data:data||null,rpc_error:error||null});
+        console.log('Respuesta update_order_atomic_v2:', {data,error});
+        if(error){
+          const detail=[error.code,error.message,error.details,error.hint].filter(Boolean).join(' · ');
+          throw new Error(detail||'Supabase no pudo actualizar el pedido.');
+        }
 
-        // Verificación real: no mostramos éxito hasta comprobar que Supabase
-        // guardó exactamente las líneas que permanecen en el editor.
-        const saved=await fetchFullOrder({...order,id:order.id});
-        const expected=new Map(payload.map(item=>[`${item.product_id}:${item.variant_id||''}`,Number(item.quantity)]));
-        const actual=new Map((saved.items||[]).map(item=>[`${item.product_id}:${item.variant_id||''}`,Number(item.quantity)]));
-        const matches=expected.size===actual.size&&[...expected].every(([key,quantity])=>actual.get(key)===quantity);
-        if(!matches)throw new Error('Supabase respondió, pero los productos guardados no coinciden con la edición. Recarga e inténtalo nuevamente.');
+        // Verificación real contra la tabla: no mostramos éxito hasta comprobar
+        // productos, variantes, cantidades y precios guardados.
+        const {data:savedItems,error:savedItemsError}=await supabase
+          .from('order_items')
+          .select('id,order_id,product_id,variant_id,quantity,unit_price,line_total,product_name_snapshot')
+          .eq('order_id',order.id)
+          .order('created_at',{ascending:true});
+        if(savedItemsError){
+          const detail=[savedItemsError.code,savedItemsError.message,savedItemsError.details,savedItemsError.hint].filter(Boolean).join(' · ');
+          throw new Error(detail||'No fue posible verificar los productos guardados.');
+        }
+
+        const keyOf=item=>`${item.product_id}:${item.variant_id||''}`;
+        const expected=new Map(payload.map(item=>[keyOf(item),{
+          quantity:Number(item.quantity),
+          unit_price:Number(item.unit_price)
+        }]));
+        const actual=new Map((savedItems||[]).map(item=>[keyOf(item),{
+          quantity:Number(item.quantity),
+          unit_price:Number(item.unit_price)
+        }]));
+        const matches=expected.size===actual.size&&[...expected].every(([key,value])=>{
+          const saved=actual.get(key);
+          return saved&&saved.quantity===value.quantity&&Math.abs(saved.unit_price-value.unit_price)<0.01;
+        });
+        const verification={requestId,expected:[...expected.entries()],actual:[...actual.entries()],rpc:data,matches};
+        publishOrderDebug({...debugBase,stage:'verified',...verification});
+        console.log('[LIHEN] Verificación posterior:',verification);
+        console.groupEnd();
+        if(!matches)throw new Error('Supabase respondió, pero los productos almacenados no coinciden con la edición. El formulario seguirá abierto para no perder tus cambios.');
 
         closeModal();
-        toast(`Pedido ${data?.order_number||order.order_number} actualizado correctamente`);
+        const savedOrder=data?.order||data;
+        toast(`Pedido ${savedOrder?.order_number||order.order_number} actualizado correctamente`);
       }else{
         const {data,error}=await supabase.rpc('create_order_atomic',{
           p_customer_id:fields.customer_id,
@@ -303,10 +370,14 @@ export async function openOrderEditor(order=null){
       }
       document.dispatchEvent(new CustomEvent('lihen:refresh'));
     }catch(err){
-      console.error('Error al guardar pedido',err);
+      try{console.groupEnd();}catch(_err){}
+      const message=String(err?.message||err||'Error desconocido');
+      publishOrderDebug({stage:'failed',order_id:order?.id||null,payload,error:message});
+      console.error('Error al guardar pedido',{error:err,payload,removed_keys:[...removedItemKeys]});
       button.disabled=false;
       button.textContent=order?'Guardar cambios':'Crear pedido';
-      toast(`No fue posible guardar los cambios: ${err.message}`,'danger');
+      const auditHint=message.includes('old_data')?' La función de Supabase sigue usando una columna de auditoría inexistente; ejecuta la migración 010 incluida.':'';
+      toast(`No fue posible guardar los cambios: ${message}${auditHint}`,'danger');
     }
   });
 }

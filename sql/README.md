@@ -24,3 +24,8 @@ Debe ejecutarse después de `002_storage_and_security.sql`.
 - `005_public_catalog_view.sql`: vista pública para alimentar el catálogo.
 
 - 008_edicion_pedidos_y_whatsapp.sql: edición transaccional, reservas diferenciales, auditoría y flujo WhatsApp.
+
+
+## Migración 009
+
+Ejecuta `009_corregir_guardado_edicion_pedidos.sql` para corregir la persistencia al agregar, modificar o eliminar productos de pedidos existentes. Esta migración crea la RPC `update_order_atomic_v2`.
