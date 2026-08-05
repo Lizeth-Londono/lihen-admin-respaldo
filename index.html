@@ -8,12 +8,25 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Playfair+Display:wght@600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/app.css?v=20260805-2">
+  <link rel="stylesheet" href="css/app.css?v=20260805-4">
 </head>
 <body>
   <div id="app" aria-live="polite"></div>
   <div id="toastRoot" class="toast-root"></div>
-  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-  <script type="module" src="js/main.js?v=20260805-3"></script>
+  <script>
+    window.__lihenBootTimer = setTimeout(() => {
+      const app = document.getElementById('app');
+      if (app && !app.innerHTML.trim()) {
+        app.innerHTML = `<main style="min-height:100vh;display:grid;place-items:center;padding:24px;font-family:Arial,sans-serif;background:#fffaf6;color:#3b2a23"><section style="max-width:620px;background:white;border:1px solid #eadbd0;border-radius:22px;padding:32px;box-shadow:0 18px 55px rgba(60,35,25,.10)"><h1 style="margin-top:0">LIHEN Admin no pudo iniciar</h1><p>Actualiza la página con <b>Ctrl + F5</b>. Si continúa, abre F12 → Console y toma una captura del primer error rojo.</p></section></main>`;
+      }
+    }, 8000);
+    window.addEventListener('error', (event) => {
+      console.error('LIHEN boot error:', event.error || event.message);
+    });
+    window.addEventListener('unhandledrejection', (event) => {
+      console.error('LIHEN unhandled rejection:', event.reason);
+    });
+  </script>
+  <script type="module" src="js/main.js?v=20260805-4"></script>
 </body>
 </html>

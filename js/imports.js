@@ -5,8 +5,22 @@ import { modal, closeModal, toast } from './ui.js';
 
 const normalize=v=>String(v??'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim().toLowerCase().replace(/\s+/g,' ');
 const number=v=>{if(v==null||v==='')return 0;const n=Number(String(v).replace(/[^0-9,.-]/g,'').replace(',','.'));return Number.isFinite(n)?n:0;};
-function ensureXlsx(){if(!window.XLSX)throw new Error('No se pudo cargar el lector de Excel. Actualiza la página e inténtalo nuevamente.');}
-async function workbookFromFile(file){ensureXlsx();const buffer=await file.arrayBuffer();return XLSX.read(buffer,{type:'array',cellDates:true});}
+let xlsxLoadPromise = null;
+async function ensureXlsx(){
+  if(window.XLSX) return window.XLSX;
+  if(!xlsxLoadPromise){
+    xlsxLoadPromise = new Promise((resolve,reject)=>{
+      const script=document.createElement('script');
+      script.src='https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js';
+      script.async=true;
+      script.onload=()=>window.XLSX?resolve(window.XLSX):reject(new Error('El lector de Excel no quedó disponible.'));
+      script.onerror=()=>reject(new Error('No se pudo cargar el lector de Excel. Revisa la conexión e inténtalo nuevamente.'));
+      document.head.appendChild(script);
+    }).catch(error=>{xlsxLoadPromise=null;throw error;});
+  }
+  return xlsxLoadPromise;
+}
+async function workbookFromFile(file){const XLSXLib=await ensureXlsx();const buffer=await file.arrayBuffer();return XLSXLib.read(buffer,{type:'array',cellDates:true});}
 function rowsFromSheet(workbook,name){return XLSX.utils.sheet_to_json(workbook.Sheets[name],{header:1,defval:null,raw:true});}
 async function audit(action,newData){try{await supabase.from('audit_logs').insert({user_id:state.profile.id,action,entity_type:'importacion',new_data:newData});}catch(error){console.warn(error);}}
 
