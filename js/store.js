@@ -36,7 +36,7 @@ export async function sendPasswordReset(email){
 export function isAuthCallback(){
   const hash=new URLSearchParams(window.location.hash.replace(/^#/,''));
   const query=new URLSearchParams(window.location.search);
-  return ['invite','recovery'].includes(hash.get('type')) || ['invite','recovery'].includes(query.get('type')) || hash.has('access_token');
+  return ['invite','recovery'].includes(hash.get('type')) || ['invite','recovery'].includes(query.get('type')) || hash.has('access_token') || query.has('code');
 }
 
 export async function loadDashboard(){

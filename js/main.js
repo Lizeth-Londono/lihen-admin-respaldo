@@ -6,9 +6,45 @@ import { newCustomer, newSupplier, newProduct, newOrder, importCatalog, inventor
 
 const app=$('#app');
 async function boot(){app.innerHTML='<div class="splash"><img src="assets/logo-lihen.jpg" alt="LIHEN"><span></span><p>Preparando LIHEN Admin…</p></div>';try{await loadSession();if(isAuthCallback()&&state.session){renderPasswordSetup();return;}state.session?await renderApp():renderLogin();}catch(e){console.error(e);renderLogin('No fue posible conectar con Supabase. Revisa la conexión.')};}
-function renderLogin(error=''){app.innerHTML=login(error);$('#loginForm').addEventListener('submit',async e=>{e.preventDefault();const fd=new FormData(e.currentTarget),button=$('button[type="submit"]',e.currentTarget);button.disabled=true;button.textContent='Ingresando…';try{await signIn(fd.get('email'),fd.get('password'));await renderApp();}catch(err){renderLogin(err.message==='Invalid login credentials'?'Correo o contraseña incorrectos.':err.message)}});$('#forgotPasswordBtn')?.addEventListener('click',showPasswordReset);}
+function renderLogin(error=''){app.innerHTML=login(error);$('#loginForm')?.addEventListener('submit',async e=>{e.preventDefault();const fd=new FormData(e.currentTarget),button=$('button[type="submit"]',e.currentTarget);button.disabled=true;button.textContent='Ingresando…';try{await signIn(fd.get('email'),fd.get('password'));await renderApp();}catch(err){renderLogin(err.message==='Invalid login credentials'?'Correo o contraseña incorrectos.':err.message)}});}
 function renderPasswordSetup(error=''){app.innerHTML=passwordSetup(error);$('#passwordSetupForm').addEventListener('submit',async e=>{e.preventDefault();const fd=new FormData(e.currentTarget),password=fd.get('password'),confirm=fd.get('confirm_password'),button=$('button[type="submit"]',e.currentTarget);if(password!==confirm){renderPasswordSetup('Las contraseñas no coinciden.');return;}button.disabled=true;button.textContent='Guardando…';try{await updatePassword(password);history.replaceState({},document.title,location.pathname);await loadSession();toast('Contraseña creada correctamente');await renderApp();}catch(err){renderPasswordSetup(err.message)}})}
-function showPasswordReset(){modal('Recuperar contraseña',`<form id="resetPasswordForm" class="form-grid"><label class="full">Correo de la cofundadora<input name="email" type="email" autocomplete="email" required></label><p class="full privacy">Recibirás un enlace seguro para crear una contraseña nueva.</p><div class="form-actions full"><button type="button" class="button ghost" data-close-modal>Cancelar</button><button class="button primary" type="submit">Enviar enlace</button></div></form>`);$('#resetPasswordForm').addEventListener('submit',async e=>{e.preventDefault();const button=$('button[type="submit"]',e.currentTarget),email=new FormData(e.currentTarget).get('email');button.disabled=true;button.textContent='Enviando…';try{await sendPasswordReset(email);closeModal();toast('Revisa tu correo para continuar');}catch(err){button.disabled=false;button.textContent='Enviar enlace';toast(err.message,'danger')}})}
+function showPasswordReset(){
+  modal('Recuperar contraseña', `
+    <form id="resetPasswordForm" class="form-grid">
+      <label class="full">Correo de la cofundadora
+        <input name="email" type="email" autocomplete="email" required>
+      </label>
+      <p class="full privacy">Recibirás un enlace seguro para crear una contraseña nueva.</p>
+      <div class="form-actions full">
+        <button type="button" class="button ghost" data-close-modal>Cancelar</button>
+        <button class="button primary" type="submit">Enviar enlace</button>
+      </div>
+    </form>
+  `);
+
+  const form = $('#resetPasswordForm');
+  if(!form){
+    toast('No fue posible abrir la recuperación de contraseña.','danger');
+    return;
+  }
+
+  form.addEventListener('submit', async e => {
+    e.preventDefault();
+    const button = $('button[type="submit"]', e.currentTarget);
+    const email = new FormData(e.currentTarget).get('email');
+    button.disabled = true;
+    button.textContent = 'Enviando…';
+    try{
+      await sendPasswordReset(email);
+      closeModal();
+      toast('Revisa tu correo para continuar');
+    }catch(err){
+      button.disabled = false;
+      button.textContent = 'Enviar enlace';
+      toast(err.message || 'No fue posible enviar el enlace.','danger');
+    }
+  });
+} 
 async function renderApp(){app.innerHTML=shell('<div id="viewRoot"></div>');await refresh();bindGlobal();}
 async function refresh(){const root=$('#viewRoot');if(!root)return;root.innerHTML=await renderRoute();bindContent();}
 function bindGlobal(){
@@ -33,6 +69,13 @@ function action(name,dataset={}){({
  'inventory-adjustment':inventoryAdjustment,
  'generate-receipt':()=>toast('Abre un pedido para generar su comprobante.','warning')
 }[name]||(()=>{}))();}
+document.addEventListener('click', e => {
+  const forgotButton = e.target.closest('#forgotPasswordBtn');
+  if(forgotButton){
+    e.preventDefault();
+    showPasswordReset();
+  }
+});
 document.addEventListener('lihen:refresh',refresh);
 document.addEventListener('keydown',e=>{if(e.key==='Escape')closeModal()});
 boot();
