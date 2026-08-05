@@ -1,42 +1,132 @@
 import { supabase } from './supabase.js';
 
+const PASSWORD_RECOVERY_KEY = 'lihen_password_recovery';
+const INITIAL_AUTH_URL = window.location.href;
+
 export const state = {
   session: null,
   profile: null,
   route: 'dashboard',
   loading: false,
   dashboard: null,
-  products: [], inventory: [], orders: [], customers: [], suppliers: [], movements: [], reports: null
+  products: [],
+  inventory: [],
+  orders: [],
+  customers: [],
+  suppliers: [],
+  movements: [],
+  reports: null
 };
 
-export async function loadSession(){
-  const { data:{ session } } = await supabase.auth.getSession();
+export function markPasswordRecovery() {
+  window.sessionStorage.setItem(PASSWORD_RECOVERY_KEY, 'true');
+}
+
+export function clearPasswordRecovery() {
+  window.sessionStorage.removeItem(PASSWORD_RECOVERY_KEY);
+}
+
+export function isPasswordRecoveryPending() {
+  return window.sessionStorage.getItem(PASSWORD_RECOVERY_KEY) === 'true';
+}
+
+export async function loadSession() {
+  const {
+    data: { session },
+    error
+  } = await supabase.auth.getSession();
+
+  if (error) throw error;
+
   state.session = session;
-  if(session) await loadProfile();
+
+  if (session) {
+    await loadProfile();
+  } else {
+    state.profile = null;
+  }
+
   return session;
 }
-export async function loadProfile(){
-  const { data, error } = await supabase.from('profiles').select('*').eq('id', state.session.user.id).single();
-  if(error) throw error; state.profile=data; return data;
+
+export async function loadProfile() {
+  if (!state.session?.user?.id) {
+    state.profile = null;
+    return null;
+  }
+
+  const { data, error } = await supabase
+    .from('profiles')
+    .select('*')
+    .eq('id', state.session.user.id)
+    .single();
+
+  if (error) throw error;
+
+  state.profile = data;
+  return data;
 }
-export async function signIn(email,password){
-  const { data,error }=await supabase.auth.signInWithPassword({email,password});
-  if(error) throw error; state.session=data.session; await loadProfile(); return data;
+
+export async function signIn(email, password) {
+  const { data, error } = await supabase.auth.signInWithPassword({
+    email,
+    password
+  });
+
+  if (error) throw error;
+
+  state.session = data.session;
+  await loadProfile();
+  return data;
 }
-export async function signOut(){ await supabase.auth.signOut(); state.session=null; state.profile=null; }
-export async function updatePassword(password){
-  const { data,error }=await supabase.auth.updateUser({password});
-  if(error) throw error; return data;
+
+export async function signOut() {
+  const { error } = await supabase.auth.signOut();
+  if (error) throw error;
+
+  state.session = null;
+  state.profile = null;
 }
-export async function sendPasswordReset(email){
-  const redirectTo=new URL('./',window.location.href).href;
-  const {data,error}=await supabase.auth.resetPasswordForEmail(email,{redirectTo});
-  if(error) throw error; return data;
+
+export async function updatePassword(password) {
+  const { data, error } = await supabase.auth.updateUser({
+    password
+  });
+
+  if (error) throw error;
+  return data;
 }
-export function isAuthCallback(){
-  const hash=new URLSearchParams(window.location.hash.replace(/^#/,''));
-  const query=new URLSearchParams(window.location.search);
-  return ['invite','recovery'].includes(hash.get('type')) || ['invite','recovery'].includes(query.get('type')) || hash.has('access_token') || query.has('code');
+
+export async function sendPasswordReset(email) {
+  const redirectTo = new URL('./', window.location.href).href;
+
+  const { data, error } = await supabase.auth.resetPasswordForEmail(
+    email,
+    { redirectTo }
+  );
+
+  if (error) throw error;
+  return data;
+}
+
+function urlContainsAuthCallback(urlValue) {
+  const url = new URL(urlValue);
+  const hash = new URLSearchParams(url.hash.replace(/^#/, ''));
+  const query = url.searchParams;
+
+  return (
+    ['invite', 'recovery'].includes(hash.get('type')) ||
+    ['invite', 'recovery'].includes(query.get('type')) ||
+    hash.has('access_token') ||
+    query.has('code')
+  );
+}
+
+export function isAuthCallback() {
+  return (
+    urlContainsAuthCallback(INITIAL_AUTH_URL) ||
+    urlContainsAuthCallback(window.location.href)
+  );
 }
 
 export async function loadDashboard(){
