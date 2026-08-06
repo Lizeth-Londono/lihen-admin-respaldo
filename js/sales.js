@@ -1,5 +1,5 @@
 import { createQuickSaleAtomic, cancelQuickSaleAtomic } from './repositories/quick-sale-repository.js';
-import { QUICK_SALE_QUICK_SALE_PAYMENT_LABELS } from './constants.js';
+import { QUICK_SALE_PAYMENT_LABELS } from './constants.js';
 import { state, loadProducts, loadCustomers, loadQuickSales } from './store.js';
 import { $, $$, escapeHtml, money, dateTime, whatsappUrl } from './utils.js';
 import { modal, closeModal, toast } from './ui.js';
