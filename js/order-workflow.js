@@ -4,7 +4,7 @@ import { ORDER_PAYMENT_LABELS, ORDER_STATUSES } from './constants.js';
 import { calculateOrderTotals } from './order-calculations.js';
 import { confirmationMessage, confirmedMessage } from './order-messages.js';
 import { errorMessage } from './errors.js';
-import { getOrderById, createOrderAtomic, updateOrderAtomic, listSavedOrderItems } from './repositories/order-repository.js';
+import { getOrderById, createOrderAtomic, updateOrderAtomic, listSavedOrderItems, closeOrderDirectAtomic } from './repositories/order-repository.js';
 import { canEditOrder } from './services/order-state-service.js';
 import { orderItemKey as itemKey, normalizeOrderItems as normalizedPayload, compareOrderItems } from './services/order-payload-service.js';
 import { modal, closeModal, toast, badge, totals } from './ui.js';
@@ -358,6 +358,54 @@ export function openSummaryPreview(order,{returnToEditor=false}={}){
   modal('Vista previa para el cliente',`<div class="summary-preview"><div class="preview-brand"><img src="assets/logo-lihen.jpg" alt="LIHEN"><div><p class="eyebrow">RESUMEN DEL PEDIDO</p><h3>${escapeHtml(order.order_number||'Pedido sin guardar')}</h3></div></div><div class="preview-message">${escapeHtml(message).replace(/\n/g,'<br>')}</div><div class="callout"><b>Revisa antes de enviar</b><p>WhatsApp abrirá este texto para que lo revises desde la cuenta corporativa de LIHEN.</p></div></div>`,{wide:true,footer:`<button class="button ghost" data-close-modal>Volver</button><a class="button whatsapp compact-action" target="_blank" rel="noopener noreferrer" href="${whatsappUrl(order.customer?.whatsapp,message)}"><span>◉</span> Enviar resumen</a>`});
 }
 
+
+function directCloseMarkup(order){
+  const paymentOptions=Object.entries(ORDER_PAYMENT_LABELS)
+    .filter(([value])=>value!=='sin_definir')
+    .map(([value,label])=>`<option value="${value}" ${order.payment_method===value?'selected':''}>${escapeHtml(label)}</option>`)
+    .join('');
+  return `<form id="directCloseOrderForm" class="direct-close-form">
+    <div class="callout"><b>Registrar pago y entrega directamente</b><p>Úsalo cuando la clienta ya pagó y recibió el pedido, aunque no se hayan enviado el resumen o la confirmación por WhatsApp.</p></div>
+    <div class="form-grid">
+      <label>Método de pago<select name="payment_method" required><option value="">Selecciona el medio de pago</option>${paymentOptions}</select></label>
+      <label>Referencia del pago (opcional)<input name="reference_number" placeholder="Ej. Nequi MI1988910"></label>
+      <label class="full">Motivo para omitir resumen y confirmación<textarea name="reason" rows="4" minlength="10" required placeholder="Ej. La clienta pagó directamente por Nequi y recibió el pedido en el local."></textarea></label>
+      <label class="full">Observación interna adicional<textarea name="notes" rows="2" placeholder="Información adicional para el historial"></textarea></label>
+    </div>
+    <div class="alert warning"><b>Importante:</b> el pedido quedará como <b>Entregado</b> y el pago como <b>Pagado</b>. No se marcará como cancelado porque la venta sí se realizó.</div>
+    <div class="form-actions"><button type="button" class="button ghost" data-close-modal>Volver</button><button type="submit" class="button primary">Registrar pago y entrega</button></div>
+  </form>`;
+}
+
+function openDirectCloseOrder(order){
+  modal(`Cerrar ${order.order_number}`,directCloseMarkup(order),{wide:true});
+  const form=$('#directCloseOrderForm');
+  form.addEventListener('submit',async event=>{
+    event.preventDefault();
+    const fields=Object.fromEntries(new FormData(form));
+    const reason=String(fields.reason||'').trim();
+    if(reason.length<10)return toast('Escribe un motivo claro de al menos 10 caracteres.','warning');
+    const button=form.querySelector('button[type="submit"]');
+    button.disabled=true;button.textContent='Registrando…';
+    try{
+      const result=await closeOrderDirectAtomic({
+        p_order_id:order.id,
+        p_payment_method:fields.payment_method,
+        p_reason:reason,
+        p_reference_number:String(fields.reference_number||'').trim()||null,
+        p_notes:String(fields.notes||'').trim()||null
+      });
+      closeModal();
+      toast(`Pedido ${order.order_number} registrado como pagado y entregado.`);
+      document.dispatchEvent(new CustomEvent('lihen:refresh'));
+      await openReceipt(result?.order||{...order,status:'entregado',payment_status:'pagado',payment_method:fields.payment_method});
+    }catch(err){
+      button.disabled=false;button.textContent='Registrar pago y entrega';
+      toast(err?.message||'No fue posible registrar el pago y la entrega.','danger');
+    }
+  });
+}
+
 export async function showOrder(order){
   try{
     modal('Cargando pedido', '<div class="loading"><span class="spinner"></span><p>Consultando productos y totales…</p></div>', {wide:true});
@@ -372,9 +420,18 @@ export async function showOrder(order){
   const editable=!['entregado','cancelado'].includes(order.status);
   const canReceipt=order.status==='entregado'&&order.payment_status==='pagado';
   const itemsMarkup=(order.items||[]).length?(order.items||[]).map(i=>`<div><div><b>${escapeHtml(i.product_name_snapshot)}</b><small>${i.quantity} × ${money(i.unit_price)}${i.quantity_to_source?` · ${i.quantity_to_source} por conseguir`:''}</small></div><strong>${money(i.line_total)}</strong></div>`).join(''):'<div class="empty-line-items">No se encontraron productos asociados. Actualiza la página e intenta nuevamente.</div>';
-  modal(`Pedido ${order.order_number}`,`<div class="order-detail"><div class="detail-grid"><div><span>Cliente</span><b>${escapeHtml(order.customer?.full_name||'—')}</b></div><div><span>WhatsApp</span><b>${escapeHtml(order.customer?.whatsapp||'—')}</b></div><div><span>Estado</span>${badge(order.status)}</div><div><span>Pago</span>${badge(order.payment_status)}</div></div><h3>Productos</h3><div class="line-items">${itemsMarkup}</div>${totals(order)}<div class="callout"><b>Próxima acción recomendada</b><p>${order.status==='pendiente_proveedor'?'Solicitar los productos faltantes al proveedor.':order.status==='pedido_completo'?'Enviar el resumen al cliente y confirmar el medio de pago.':'Continuar el seguimiento según el estado actual.'}</p></div></div>`,{wide:true,footer:`<div class="order-action-grid">${editable?'<button class="action-tile" id="editOrderBtn"><span>✎</span><b>Editar</b></button>':''}<button class="action-tile" id="previewOrderBtn"><span>▤</span><b>Resumen</b></button><a class="action-tile whatsapp-tile" target="_blank" rel="noopener noreferrer" id="confirmOrderWhatsapp"><span>◉</span><b>Enviar resumen</b></a><a class="action-tile whatsapp-tile" target="_blank" rel="noopener noreferrer" id="confirmedWhatsapp"><span>◉</span><b>Confirmar pedido</b></a><button class="action-tile ${canReceipt?'receipt-tile':'disabled-tile'}" id="orderReceiptBtn" ${canReceipt?'':'aria-disabled="true"'}><span>▧</span><b>Comprobante final</b></button></div>`});
+  const canDirectClose=!['entregado','cancelado'].includes(order.status);
+  const recommendation=order.status==='pendiente_proveedor'
+    ?'Solicitar los productos faltantes al proveedor.'
+    :order.status==='pedido_completo'
+      ?'Enviar el resumen al cliente o registrar directamente el pago y la entrega si la compra ya finalizó.'
+      :canReceipt
+        ?'El pedido ya fue pagado y entregado. Puedes generar el comprobante final.'
+        :'Continuar el seguimiento según el estado actual.';
+  modal(`Pedido ${order.order_number}`,`<div class="order-detail"><div class="detail-grid"><div><span>Cliente</span><b>${escapeHtml(order.customer?.full_name||'—')}</b></div><div><span>WhatsApp</span><b>${escapeHtml(order.customer?.whatsapp||'—')}</b></div><div><span>Estado</span>${badge(order.status)}</div><div><span>Pago</span>${badge(order.payment_status)}</div></div><h3>Productos</h3><div class="line-items">${itemsMarkup}</div>${totals(order)}<div class="callout"><b>Próxima acción recomendada</b><p>${recommendation}</p></div></div>`,{wide:true,footer:`<div class="order-action-grid">${editable?'<button class="action-tile" id="editOrderBtn"><span>✎</span><b>Editar</b></button>':''}<button class="action-tile" id="previewOrderBtn"><span>▤</span><b>Resumen</b></button><a class="action-tile whatsapp-tile" target="_blank" rel="noopener noreferrer" id="confirmOrderWhatsapp"><span>◉</span><b>Enviar resumen</b></a><a class="action-tile whatsapp-tile" target="_blank" rel="noopener noreferrer" id="confirmedWhatsapp"><span>◉</span><b>Confirmar pedido</b></a>${canDirectClose?'<button class="action-tile direct-close-tile" id="directCloseOrderBtn"><span>✓</span><b>Pago y entrega</b></button>':''}<button class="action-tile ${canReceipt?'receipt-tile':'disabled-tile'}" id="orderReceiptBtn" ${canReceipt?'':'aria-disabled="true"'}><span>▧</span><b>Comprobante final</b></button></div>`});
   $('#editOrderBtn')?.addEventListener('click',()=>openOrderEditor(order));
   $('#previewOrderBtn')?.addEventListener('click',()=>openSummaryPreview(order));
+  $('#directCloseOrderBtn')?.addEventListener('click',()=>openDirectCloseOrder(order));
   const confirm=$('#confirmOrderWhatsapp');if(confirm)confirm.href=whatsappUrl(order.customer?.whatsapp,confirmationMessage(order));
   const confirmed=$('#confirmedWhatsapp');if(confirmed)confirmed.href=whatsappUrl(order.customer?.whatsapp,confirmedMessage(order));
   $('#orderReceiptBtn')?.addEventListener('click',()=>{if(!canReceipt)return toast('El comprobante final se genera únicamente cuando el pedido está entregado y el pago figura como pagado.','warning');openReceipt(order);});

@@ -24,3 +24,11 @@ export async function updateOrderAtomic(payload) {
 export async function listSavedOrderItems(orderId) {
   return unwrap(await supabase.from('order_items').select('id,order_id,product_id,variant_id,quantity,unit_price,line_total,product_name_snapshot').eq('order_id', orderId), 'No fue posible verificar los productos guardados.') || [];
 }
+
+
+export async function closeOrderDirectAtomic(payload) {
+  return unwrap(
+    await supabase.rpc('close_order_direct_atomic', payload),
+    'No fue posible registrar el pago y la entrega del pedido.'
+  );
+}

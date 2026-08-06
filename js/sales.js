@@ -92,12 +92,36 @@ export function quickSaleReceipt(sale){
   const msg=`Hola, ${customer==='Consumidor final'?'':customer+' '}🤎\n\nGracias por comprar en LIHEN.CO.\n\nVenta: ${sale.sale_number}\nTotal pagado: ${money(sale.total)}\nMétodo de pago: ${QUICK_SALE_PAYMENT_LABELS[sale.payment_method]||sale.payment_method}\n\nEsperamos que disfrutes mucho tus productos y que muy pronto vuelvas a elegirnos ✨\n\nLIHEN.CO\nBeauty Care | Style`;
   modal(`Venta ${sale.sale_number}`,`<article class="receipt-sheet"><header class="receipt-brand"><img src="assets/logo-lihen.jpg"><div><p>COMPROBANTE DE VENTA RÁPIDA</p><h2>${escapeHtml(sale.sale_number)}</h2></div></header><div class="receipt-meta"><div><span>Fecha</span><b>${dateTime(sale.created_at)}</b></div><div><span>Cliente</span><b>${escapeHtml(customer)}</b></div><div><span>Pago</span><b>${escapeHtml(QUICK_SALE_PAYMENT_LABELS[sale.payment_method]||sale.payment_method)}</b></div><div><span>Referencia</span><b>${escapeHtml(sale.payment_reference||'—')}</b></div></div><table class="receipt-table"><thead><tr><th>Producto</th><th>Cant.</th><th>Valor</th><th>Total</th></tr></thead><tbody>${(sale.items||[]).map(i=>`<tr><td>${escapeHtml(i.product_name_snapshot)}</td><td>${i.quantity}</td><td>${money(i.unit_price)}</td><td>${money(i.line_total)}</td></tr>`).join('')}</tbody></table><div class="receipt-summary"><div><span>Subtotal</span><b>${money(sale.subtotal)}</b></div><div><span>Descuento</span><b>− ${money(sale.discount_amount)}</b></div><div class="receipt-total"><span>Total pagado</span><strong>${money(sale.total)}</strong></div></div>${sale.status==='anulada'?'<div class="alert danger"><b>Venta anulada</b><br>El stock fue reintegrado.</div>':''}<footer class="receipt-footer"><p>Gracias por elegir LIHEN.CO</p><span>Beauty Care | Style</span></footer></article>`,{wide:true,footer:`${sale.status==='completada'?'<button class="button ghost" id="cancelQuickSaleBtn">Anular venta</button>':''}<button class="button ghost" id="printQuickSale">Descargar / Guardar PDF</button>${sale.customer?.whatsapp&&sale.status==='completada'?`<a class="button whatsapp" target="_blank" rel="noopener noreferrer" href="${whatsappUrl(sale.customer.whatsapp,msg)}">Enviar por WhatsApp</a>`:''}`});
   $('#printQuickSale')?.addEventListener('click',()=>window.print());
-  $('#cancelQuickSaleBtn')?.addEventListener('click',async()=>{await cancelQuickSale(sale);closeModal();});
+  $('#cancelQuickSaleBtn')?.addEventListener('click',()=>cancelQuickSale(sale));
 }
 
 export async function cancelQuickSale(sale){
-  const reason=prompt(`Motivo para anular ${sale.sale_number}:`);if(reason===null)return;
-  if(!confirm('La venta será anulada y las unidades volverán al stock. ¿Continuar?'))return;
-  const {error}=await supabase.rpc('cancel_quick_sale_atomic',{p_sale_id:sale.id,p_reason:reason||'Anulación administrativa'});
-  if(error){toast(error.message,'danger');return;}toast('Venta anulada y stock reintegrado');await loadQuickSales();document.dispatchEvent(new CustomEvent('lihen:refresh'));
+  if(!sale?.id)return toast('No se encontró la venta que deseas anular.','danger');
+  if(sale.status==='anulada')return toast('Esta venta ya se encuentra anulada.','warning');
+
+  modal(`Anular ${sale.sale_number}`,`<form id="cancelQuickSaleForm" class="form-grid">
+    <div class="alert warning full"><b>Esta acción devolverá las unidades al inventario.</b><br>La venta no se borrará: quedará registrada como anulada para conservar la trazabilidad.</div>
+    <label class="full">Motivo de la anulación<textarea name="reason" rows="4" minlength="8" required placeholder="Ej. La clienta devolvió los productos y se reintegró el dinero."></textarea></label>
+    <div class="form-actions full"><button type="button" class="button ghost" data-close-modal>Volver</button><button type="submit" class="button danger">Confirmar anulación</button></div>
+  </form>`,{wide:false});
+
+  const form=$('#cancelQuickSaleForm');
+  form.addEventListener('submit',async event=>{
+    event.preventDefault();
+    const reason=String(new FormData(form).get('reason')||'').trim();
+    if(reason.length<8)return toast('Escribe un motivo claro de al menos 8 caracteres.','warning');
+    if(!window.confirm('La venta será anulada y las unidades volverán al stock. ¿Deseas continuar?'))return;
+    const button=form.querySelector('button[type="submit"]');
+    button.disabled=true;button.textContent='Anulando…';
+    try{
+      await cancelQuickSaleAtomic({p_sale_id:sale.id,p_reason:reason});
+      closeModal();
+      toast('Venta anulada correctamente y stock reintegrado.');
+      await loadQuickSales();
+      document.dispatchEvent(new CustomEvent('lihen:refresh'));
+    }catch(err){
+      button.disabled=false;button.textContent='Confirmar anulación';
+      toast(err?.message||'No fue posible anular la venta.','danger');
+    }
+  });
 }
