@@ -5,6 +5,7 @@ import { renderRoute, showOrder } from './views.js';
 import { newCustomer, newSupplier, newProduct, newOrder, importCatalog, inventoryAdjustment } from './forms.js';
 import { editCustomer, editSupplier, editProduct } from './editors.js';
 import { importInventory, importBundledInventory, importSuppliers, importCustomers } from './imports.js';
+import { newQuickSale, quickSaleReceipt } from './sales.js';
 
 if(window.__lihenBootTimer) clearTimeout(window.__lihenBootTimer);
 const app=$('#app');
@@ -74,19 +75,20 @@ function bindGlobal(){
 function bindContent(){
  $$('[data-route]').forEach(b=>{if(!b.dataset.bound){b.dataset.bound='1';b.addEventListener('click',()=>navigate(b.dataset.route))}});
  $$('[data-action]').forEach(b=>{if(!b.dataset.bound){b.dataset.bound='1';b.addEventListener('click',()=>action(b.dataset.action,b.dataset))}});
+ $$('[data-quick-sale-id]').forEach(b=>b.addEventListener('click',()=>{const sale=state.quickSales.find(x=>x.id===b.dataset.quickSaleId);if(sale)quickSaleReceipt(sale)}));
  $$('[data-order-id]').forEach(b=>b.addEventListener('click',()=>{const o=state.orders.find(x=>x.id===b.dataset.orderId)||state.dashboard?.recentOrders.find(x=>x.id===b.dataset.orderId);if(o)showOrder(o)}));
  $$('[data-edit-customer]').forEach(b=>b.addEventListener('click',()=>editCustomer(b.dataset.editCustomer)));
  $$('[data-edit-supplier]').forEach(b=>b.addEventListener('click',()=>editSupplier(b.dataset.editSupplier)));
  $$('[data-edit-product]').forEach(b=>b.addEventListener('click',()=>editProduct(b.dataset.editProduct)));
  $('#orderStatus')?.addEventListener('change',e=>{$$('tbody tr').forEach(tr=>tr.hidden=e.target.value&&!tr.innerText.toLowerCase().includes(e.target.selectedOptions[0].text.toLowerCase()))});
  const bindTableSearch=(id)=>{$(id)?.addEventListener('input',e=>{const q=e.target.value.trim().toLowerCase();$$('tbody tr').forEach(tr=>tr.hidden=q&&!tr.innerText.toLowerCase().includes(q));});};
- bindTableSearch('#orderSearch');bindTableSearch('#productSearch');bindTableSearch('#customerSearch');
+ bindTableSearch('#orderSearch');bindTableSearch('#quickSaleSearch');bindTableSearch('#productSearch');bindTableSearch('#customerSearch');
  $('#supplierSearch')?.addEventListener('input',e=>{const q=e.target.value.trim().toLowerCase();$$('.supplier-card').forEach(card=>card.hidden=q&&!card.innerText.toLowerCase().includes(q));});
  $('#productVisibility')?.addEventListener('change',e=>{$$('tbody tr').forEach(tr=>{const text=tr.innerText.toLowerCase();tr.hidden=e.target.value==='visible'&&!text.includes('publicado')||e.target.value==='hidden'&&!text.includes('oculto');});});
 }
 async function navigate(route){state.route=route;setMobileMenu(false);app.innerHTML=shell('<div id="viewRoot"></div>');await refresh();bindGlobal();}
 function action(name,dataset={}){({
- 'new-order':newOrder,'new-product':newProduct,'new-supplier':newSupplier,'new-customer':newCustomer,'import-catalog':importCatalog,
+ 'new-order':newOrder,'new-quick-sale':newQuickSale,'new-product':newProduct,'new-supplier':newSupplier,'new-customer':newCustomer,'import-catalog':importCatalog,
  'import-inventory':importInventory,'import-bundled-inventory':importBundledInventory,'import-suppliers':importSuppliers,'import-customers':importCustomers,
  'inventory-adjustment':inventoryAdjustment,
  'generate-receipt':()=>toast('Abre un pedido para generar su comprobante.','warning')

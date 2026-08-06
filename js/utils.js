@@ -16,11 +16,11 @@ export const initials = name => String(name || 'LI').split(/\s+/).slice(0,2).map
 export const debounce = (fn, wait=250) => { let t; return (...args) => { clearTimeout(t); t=setTimeout(() => fn(...args), wait); }; };
 export const statusLabel = value => ({
   solicitud_recibida:'Solicitud recibida',validando_disponibilidad:'Validando disponibilidad',pendiente_proveedor:'Pendiente de proveedor',productos_solicitados:'Productos solicitados',recepcion_parcial:'Recepción parcial',pedido_completo:'Pedido completo',esperando_medio_pago:'Esperando medio de pago',confirmado_cliente:'Confirmado con cliente',preparando_entrega:'Preparando entrega',enviado:'Enviado',entregado:'Entregado',cancelado:'Cancelado',
-  pendiente:'Pendiente',parcial:'Parcial',pagado:'Pagado',reembolsado:'Reembolsado',activo:'Activo',borrador:'Borrador',oculto:'Oculto',descontinuado:'Descontinuado'
+  pendiente:'Pendiente',parcial:'Parcial',pagado:'Pagado',reembolsado:'Reembolsado',completada:'Completada',anulada:'Anulada',activo:'Activo',borrador:'Borrador',oculto:'Oculto',descontinuado:'Descontinuado'
 }[value] || String(value || '—').replaceAll('_',' '));
 export const statusTone = value => {
-  if (['entregado','pagado','pedido_completo','confirmado_cliente','activo'].includes(value)) return 'success';
-  if (['cancelado','descontinuado','no_disponible'].includes(value)) return 'danger';
+  if (['entregado','pagado','pedido_completo','confirmado_cliente','completada','activo'].includes(value)) return 'success';
+  if (['cancelado','anulada','descontinuado','no_disponible'].includes(value)) return 'danger';
   if (['pendiente_proveedor','productos_solicitados','recepcion_parcial','pendiente'].includes(value)) return 'warning';
   return 'neutral';
 };

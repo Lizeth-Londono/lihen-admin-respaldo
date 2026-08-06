@@ -84,6 +84,7 @@ export function empty(icon, title, text, action = '') {
 const NAV = [
   ['dashboard', '⌂', 'Inicio'],
   ['orders', '▤', 'Pedidos'],
+  ['quick-sales', '🛒', 'Ventas rápidas'],
   ['inventory', '▦', 'Inventario y catálogo'],
   ['suppliers', '◇', 'Proveedores'],
   ['customers', '♡', 'Clientes'],
@@ -176,13 +177,7 @@ export function shell(content) {
               Conectado
             </span>
 
-            <button
-              class="button primary"
-              type="button"
-              data-action="new-order"
-            >
-              + Nuevo pedido
-            </button>
+            <button class="button primary" type="button" data-action="${state.route==='quick-sales'?'new-quick-sale':'new-order'}">${state.route==='quick-sales'?'+ Nueva venta':'+ Nuevo pedido'}</button>
           </div>
         </header>
 

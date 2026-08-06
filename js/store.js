@@ -6,7 +6,7 @@ export const state = {
   route: 'dashboard',
   loading: false,
   dashboard: null,
-  products: [], inventory: [], orders: [], customers: [], suppliers: [], movements: [], reports: null
+  products: [], inventory: [], orders: [], quickSales: [], customers: [], suppliers: [], movements: [], reports: null
 };
 
 export async function loadSession(){
@@ -40,15 +40,18 @@ export function isAuthCallback(){
 }
 
 export async function loadDashboard(){
-  const [orders, inventory, products, customers, movements] = await Promise.all([
+  const [orders, quickSales, inventory, products, customers, movements] = await Promise.all([
     supabase.from('orders').select('id,order_number,status,total,created_at,customer:customers(full_name)').order('created_at',{ascending:false}).limit(8),
+    supabase.from('quick_sales').select('id,sale_number,status,total,payment_method,created_at,customer:customers(full_name)').order('created_at',{ascending:false}).limit(8),
     supabase.from('inventory').select('physical_stock,reserved_stock,available_stock,pending_stock,product:products(id,name,minimum_stock)').limit(500),
     supabase.from('products').select('id,status,visible_on_website').limit(500),
     supabase.from('customers').select('id',{count:'exact',head:true}),
     supabase.from('inventory_movements').select('id,movement_type,quantity,reason,created_at,product_inventory:inventory(product:products(name)),user:profiles(full_name)').order('created_at',{ascending:false}).limit(8)
   ]);
-  for(const r of [orders,inventory,products,customers,movements]) if(r.error) throw r.error;
-  const inv=inventory.data||[], ord=orders.data||[];
+  for(const r of [orders,quickSales,inventory,products,customers,movements]) if(r.error) throw r.error;
+  const inv=inventory.data||[], ord=orders.data||[], sales=quickSales.data||[];
+  const today=new Date().toISOString().slice(0,10);
+  const todaySales=sales.filter(x=>String(x.created_at||'').slice(0,10)===today&&x.status!=='anulada');
   state.dashboard={
     activeOrders:ord.filter(o=>!['entregado','cancelado'].includes(o.status)).length,
     readyOrders:ord.filter(o=>o.status==='pedido_completo').length,
@@ -58,7 +61,10 @@ export async function loadDashboard(){
     visibleProducts:(products.data||[]).filter(x=>x.visible_on_website).length,
     customers:customers.count||0,
     recentOrders:ord,
-    movements:movements.data||[]
+    movements:movements.data||[],
+    quickSalesToday:todaySales.length,
+    quickSalesRevenue:todaySales.reduce((a,x)=>a+Number(x.total||0),0),
+    recentQuickSales:sales
   }; return state.dashboard;
 }
 export async function loadProducts(search=''){
@@ -71,6 +77,13 @@ export async function loadOrders(search=''){
   if(search) q=q.or(`order_number.ilike.%${search}%`);
   const {data,error}=await q.limit(200); if(error) throw error; state.orders=data||[]; return state.orders;
 }
+
+export async function loadQuickSales(search=''){
+  let q=supabase.from('quick_sales').select('*,customer:customers(id,full_name,whatsapp),items:quick_sale_items(*)').order('created_at',{ascending:false});
+  if(search) q=q.or(`sale_number.ilike.%${search}%`);
+  const {data,error}=await q.limit(300); if(error) throw error; state.quickSales=data||[]; return state.quickSales;
+}
+
 export async function loadCustomers(search=''){
   let q=supabase.from('customers').select('*,addresses:customer_addresses(*)').order('full_name'); if(search) q=q.or(`full_name.ilike.%${search}%,whatsapp.ilike.%${search}%`);
   const {data,error}=await q.limit(300); if(error) throw error; state.customers=data||[]; return state.customers;
@@ -85,20 +98,25 @@ export async function loadMovements(){
 }
 
 export async function loadReports(){
-  const [orders, items, products, suppliers] = await Promise.all([
+  const [orders, items, quickSales, quickSaleItems, products, suppliers] = await Promise.all([
     supabase.from('orders').select('id,status,total,discount_amount,delivery_cost,created_at,payment_status').order('created_at',{ascending:true}).limit(2000),
     supabase.from('order_items').select('quantity,line_total,product_name_snapshot,product_id').limit(5000),
+    supabase.from('quick_sales').select('id,status,total,created_at,payment_method').limit(5000),
+    supabase.from('quick_sale_items').select('quantity,line_total,product_name_snapshot,product_id').limit(10000),
     supabase.from('products').select('id,name,current_cost,sale_price,visible_on_website').limit(1000),
     supabase.from('suppliers').select('id,business_name,active').limit(500)
   ]);
-  for(const r of [orders,items,products,suppliers]) if(r.error) throw r.error;
+  for(const r of [orders,items,quickSales,quickSaleItems,products,suppliers]) if(r.error) throw r.error;
   const completed=(orders.data||[]).filter(o=>o.status==='entregado');
-  const revenue=completed.reduce((a,o)=>a+Number(o.total||0),0);
+  const completedSales=(quickSales.data||[]).filter(s=>s.status==='completada');
+  const orderRevenue=completed.reduce((a,o)=>a+Number(o.total||0),0);
+  const quickRevenue=completedSales.reduce((a,o)=>a+Number(o.total||0),0);
+  const revenue=orderRevenue+quickRevenue;
   const paid=completed.filter(o=>o.payment_status==='pagado').reduce((a,o)=>a+Number(o.total||0),0);
   const byProduct=new Map();
-  for(const i of items.data||[]){const key=i.product_name_snapshot||'Producto';const row=byProduct.get(key)||{name:key,units:0,revenue:0};row.units+=Number(i.quantity||0);row.revenue+=Number(i.line_total||0);byProduct.set(key,row);}
+  for(const i of [...(items.data||[]),...(quickSaleItems.data||[])]){const key=i.product_name_snapshot||'Producto';const row=byProduct.get(key)||{name:key,units:0,revenue:0};row.units+=Number(i.quantity||0);row.revenue+=Number(i.line_total||0);byProduct.set(key,row);}
   const monthly=new Map();
   for(const o of completed){const d=new Date(o.created_at);const key=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;monthly.set(key,(monthly.get(key)||0)+Number(o.total||0));}
-  state.reports={revenue,paid,completed:completed.length,average:completed.length?revenue/completed.length:0,topProducts:[...byProduct.values()].sort((a,b)=>b.units-a.units).slice(0,8),monthly:[...monthly.entries()].slice(-8),visible:(products.data||[]).filter(p=>p.visible_on_website).length,totalProducts:(products.data||[]).length,activeSuppliers:(suppliers.data||[]).filter(s=>s.active).length};
+  state.reports={revenue,paid,completed:completed.length,quickSales:completedSales.length,quickRevenue,average:(completed.length+completedSales.length)?revenue/(completed.length+completedSales.length):0,topProducts:[...byProduct.values()].sort((a,b)=>b.units-a.units).slice(0,8),monthly:[...monthly.entries()].slice(-8),visible:(products.data||[]).filter(p=>p.visible_on_website).length,totalProducts:(products.data||[]).length,activeSuppliers:(suppliers.data||[]).filter(s=>s.active).length};
   return state.reports;
 }

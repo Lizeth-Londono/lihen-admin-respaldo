@@ -29,3 +29,7 @@ Debe ejecutarse después de `002_storage_and_security.sql`.
 ## Migración 009
 
 Ejecuta `009_corregir_guardado_edicion_pedidos.sql` para corregir la persistencia al agregar, modificar o eliminar productos de pedidos existentes. Esta migración crea la RPC `update_order_atomic_v2`.
+
+
+## Migración 011 — Ventas rápidas
+Ejecuta `011_ventas_rapidas_pos.sql` una sola vez para crear el módulo POS ligero, tablas, RLS y RPC transaccionales.
