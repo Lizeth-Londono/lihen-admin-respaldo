@@ -1,18 +1,128 @@
-import { state, loadSession, signIn, signOut, updatePassword, sendPasswordReset, isAuthCallback } from './store.js';
+import {
+  state,
+  loadSession,
+  signIn,
+  signOut,
+  updatePassword,
+  sendPasswordReset,
+  isAuthCallback
+} from './store.js';
 import { $, $$ } from './utils.js';
+import { errorMessage, withPendingButton } from './errors.js';
 import { shell, login, passwordSetup, toast, closeModal, modal } from './ui.js';
 import { renderRoute, showOrder } from './views.js';
-import { newCustomer, newSupplier, newProduct, newOrder, importCatalog, inventoryAdjustment } from './forms.js';
+import {
+  newCustomer,
+  newSupplier,
+  newProduct,
+  newOrder,
+  importCatalog,
+  inventoryAdjustment
+} from './forms.js';
 import { editCustomer, editSupplier, editProduct } from './editors.js';
-import { importInventory, importBundledInventory, importSuppliers, importCustomers } from './imports.js';
+import {
+  importInventory,
+  importBundledInventory,
+  importSuppliers,
+  importCustomers
+} from './imports.js';
 import { newQuickSale, quickSaleReceipt } from './sales.js';
+import { registerCommand, executeCommand } from './core/command-bus.js';
+import { subscribe } from './core/event-bus.js';
 
-if(window.__lihenBootTimer) clearTimeout(window.__lihenBootTimer);
-const app=$('#app');
-async function boot(){app.innerHTML='<div class="splash"><img src="assets/logo-lihen.jpg" alt="LIHEN"><span></span><p>Preparando LIHEN Admin…</p></div>';try{await loadSession();if(isAuthCallback()&&state.session){renderPasswordSetup();return;}state.session?await renderApp():renderLogin();}catch(e){console.error(e);renderLogin('No fue posible conectar con Supabase. Revisa la conexión.')};}
-function renderLogin(error=''){app.innerHTML=login(error);$('#loginForm')?.addEventListener('submit',async e=>{e.preventDefault();const fd=new FormData(e.currentTarget),button=$('button[type="submit"]',e.currentTarget);button.disabled=true;button.textContent='Ingresando…';try{await signIn(fd.get('email'),fd.get('password'));await renderApp();}catch(err){renderLogin(err.message==='Invalid login credentials'?'Correo o contraseña incorrectos.':err.message)}});}
-function renderPasswordSetup(error=''){app.innerHTML=passwordSetup(error);$('#passwordSetupForm').addEventListener('submit',async e=>{e.preventDefault();const fd=new FormData(e.currentTarget),password=fd.get('password'),confirm=fd.get('confirm_password'),button=$('button[type="submit"]',e.currentTarget);if(password!==confirm){renderPasswordSetup('Las contraseñas no coinciden.');return;}button.disabled=true;button.textContent='Guardando…';try{await updatePassword(password);history.replaceState({},document.title,location.pathname);await loadSession();toast('Contraseña creada correctamente');await renderApp();}catch(err){renderPasswordSetup(err.message)}})}
-function showPasswordReset(){
+if (window.__lihenBootTimer) clearTimeout(window.__lihenBootTimer);
+
+const app = $('#app');
+
+[
+  ['new-order', newOrder],
+  ['new-quick-sale', newQuickSale],
+  ['new-product', newProduct],
+  ['new-supplier', newSupplier],
+  ['new-customer', newCustomer],
+  ['import-catalog', importCatalog],
+  ['import-inventory', importInventory],
+  ['import-bundled-inventory', importBundledInventory],
+  ['import-suppliers', importSuppliers],
+  ['import-customers', importCustomers],
+  ['inventory-adjustment', inventoryAdjustment],
+  ['generate-receipt', () => toast('Abre un pedido para generar su comprobante.', 'warning')]
+].forEach(([name, handler]) => registerCommand(name, handler));
+
+
+async function boot() {
+  app.innerHTML = '<div class="splash"><img src="assets/logo-lihen.jpg" alt="LIHEN"><span></span><p>Preparando LIHEN Admin…</p></div>';
+
+  try {
+    await loadSession();
+
+    if (isAuthCallback() && state.session) {
+      renderPasswordSetup();
+      return;
+    }
+
+    if (state.session) await renderApp();
+    else renderLogin();
+  } catch (error) {
+    console.error(error);
+    renderLogin('No fue posible conectar con Supabase. Revisa la conexión.');
+  }
+}
+
+function renderLogin(error = '') {
+  app.innerHTML = login(error);
+
+  $('#loginForm')?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const formData = new FormData(form);
+    const button = $('button[type="submit"]', form);
+
+    try {
+      await withPendingButton(button, 'Ingresando…', async () => {
+        await signIn(formData.get('email'), formData.get('password'));
+        await renderApp();
+      });
+    } catch (loginError) {
+      const message = loginError.message === 'Invalid login credentials'
+        ? 'Correo o contraseña incorrectos.'
+        : errorMessage(loginError);
+      renderLogin(message);
+    }
+  });
+}
+
+function renderPasswordSetup(error = '') {
+  app.innerHTML = passwordSetup(error);
+
+  $('#passwordSetupForm')?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const formData = new FormData(form);
+    const password = formData.get('password');
+    const confirmation = formData.get('confirm_password');
+    const button = $('button[type="submit"]', form);
+
+    if (password !== confirmation) {
+      renderPasswordSetup('Las contraseñas no coinciden.');
+      return;
+    }
+
+    try {
+      await withPendingButton(button, 'Guardando…', async () => {
+        await updatePassword(password);
+        history.replaceState({}, document.title, location.pathname);
+        await loadSession();
+        toast('Contraseña creada correctamente');
+        await renderApp();
+      });
+    } catch (setupError) {
+      renderPasswordSetup(errorMessage(setupError));
+    }
+  });
+}
+
+function showPasswordReset() {
   modal('Recuperar contraseña', `
     <form id="resetPasswordForm" class="form-grid">
       <label class="full">Correo de la cofundadora
@@ -27,92 +137,193 @@ function showPasswordReset(){
   `);
 
   const form = $('#resetPasswordForm');
-  if(!form){
-    toast('No fue posible abrir la recuperación de contraseña.','danger');
+  if (!form) {
+    toast('No fue posible abrir la recuperación de contraseña.', 'danger');
     return;
   }
 
-  form.addEventListener('submit', async e => {
-    e.preventDefault();
-    const button = $('button[type="submit"]', e.currentTarget);
-    const email = new FormData(e.currentTarget).get('email');
-    button.disabled = true;
-    button.textContent = 'Enviando…';
-    try{
-      await sendPasswordReset(email);
-      closeModal();
-      toast('Revisa tu correo para continuar');
-    }catch(err){
-      button.disabled = false;
-      button.textContent = 'Enviar enlace';
-      toast(err.message || 'No fue posible enviar el enlace.','danger');
+  form.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const button = $('button[type="submit"]', event.currentTarget);
+    const email = new FormData(event.currentTarget).get('email');
+
+    try {
+      await withPendingButton(button, 'Enviando…', async () => {
+        await sendPasswordReset(email);
+        closeModal();
+        toast('Revisa tu correo para continuar');
+      });
+    } catch (resetError) {
+      toast(errorMessage(resetError, 'No fue posible enviar el enlace.'), 'danger');
     }
   });
-} 
-async function renderApp(){app.innerHTML=shell('<div id="viewRoot"></div>');await refresh();bindGlobal();}
-async function refresh(){const root=$('#viewRoot');if(!root)return;root.innerHTML=await renderRoute();bindContent();}
-function setMobileMenu(open){
- const sidebar=$('#sidebar');
- const overlay=$('#sidebarOverlay');
- const button=$('#menuBtn');
- if(!sidebar)return;
- sidebar.classList.toggle('open',Boolean(open));
- overlay?.classList.toggle('open',Boolean(open));
- button?.setAttribute('aria-expanded',String(Boolean(open)));
- document.body.classList.toggle('menu-open',Boolean(open));
 }
-function toggleMobileMenu(){
- const sidebar=$('#sidebar');
- setMobileMenu(!sidebar?.classList.contains('open'));
+
+async function renderApp() {
+  app.innerHTML = shell('<div id="viewRoot"></div>');
+  await refresh();
 }
-function bindGlobal(){
- $$('[data-route]').forEach(b=>b.addEventListener('click',()=>navigate(b.dataset.route)));
- $('#logoutBtn')?.addEventListener('click',async()=>{setMobileMenu(false);await signOut();renderLogin()});
- $('#menuBtn')?.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();toggleMobileMenu()});
- $('#sidebarOverlay')?.addEventListener('click',()=>setMobileMenu(false));
- bindContent();
+
+async function refresh() {
+  const root = $('#viewRoot');
+  if (!root) return;
+
+  root.innerHTML = await renderRoute();
+  bindViewFilters();
 }
-function bindContent(){
- $$('[data-route]').forEach(b=>{if(!b.dataset.bound){b.dataset.bound='1';b.addEventListener('click',()=>navigate(b.dataset.route))}});
- $$('[data-action]').forEach(b=>{if(!b.dataset.bound){b.dataset.bound='1';b.addEventListener('click',()=>action(b.dataset.action,b.dataset))}});
- $$('[data-quick-sale-id]').forEach(b=>b.addEventListener('click',()=>{const sale=state.quickSales.find(x=>x.id===b.dataset.quickSaleId);if(sale)quickSaleReceipt(sale)}));
- $$('[data-order-id]').forEach(b=>b.addEventListener('click',()=>{const o=state.orders.find(x=>x.id===b.dataset.orderId)||state.dashboard?.recentOrders.find(x=>x.id===b.dataset.orderId);if(o)showOrder(o)}));
- $$('[data-edit-customer]').forEach(b=>b.addEventListener('click',()=>editCustomer(b.dataset.editCustomer)));
- $$('[data-edit-supplier]').forEach(b=>b.addEventListener('click',()=>editSupplier(b.dataset.editSupplier)));
- $$('[data-edit-product]').forEach(b=>b.addEventListener('click',()=>editProduct(b.dataset.editProduct)));
- $('#orderStatus')?.addEventListener('change',e=>{$$('tbody tr').forEach(tr=>tr.hidden=e.target.value&&!tr.innerText.toLowerCase().includes(e.target.selectedOptions[0].text.toLowerCase()))});
- const bindTableSearch=(id)=>{$(id)?.addEventListener('input',e=>{const q=e.target.value.trim().toLowerCase();$$('tbody tr').forEach(tr=>tr.hidden=q&&!tr.innerText.toLowerCase().includes(q));});};
- bindTableSearch('#orderSearch');bindTableSearch('#quickSaleSearch');bindTableSearch('#productSearch');bindTableSearch('#customerSearch');
- $('#supplierSearch')?.addEventListener('input',e=>{const q=e.target.value.trim().toLowerCase();$$('.supplier-card').forEach(card=>card.hidden=q&&!card.innerText.toLowerCase().includes(q));});
- $('#productVisibility')?.addEventListener('change',e=>{$$('tbody tr').forEach(tr=>{const text=tr.innerText.toLowerCase();tr.hidden=e.target.value==='visible'&&!text.includes('publicado')||e.target.value==='hidden'&&!text.includes('oculto');});});
+
+function setMobileMenu(open) {
+  const sidebar = $('#sidebar');
+  if (!sidebar) return;
+
+  const isOpen = Boolean(open);
+  sidebar.classList.toggle('open', isOpen);
+  $('#sidebarOverlay')?.classList.toggle('open', isOpen);
+  $('#menuBtn')?.setAttribute('aria-expanded', String(isOpen));
+  document.body.classList.toggle('menu-open', isOpen);
 }
-async function navigate(route){state.route=route;setMobileMenu(false);app.innerHTML=shell('<div id="viewRoot"></div>');await refresh();bindGlobal();}
-function action(name,dataset={}){({
- 'new-order':newOrder,'new-quick-sale':newQuickSale,'new-product':newProduct,'new-supplier':newSupplier,'new-customer':newCustomer,'import-catalog':importCatalog,
- 'import-inventory':importInventory,'import-bundled-inventory':importBundledInventory,'import-suppliers':importSuppliers,'import-customers':importCustomers,
- 'inventory-adjustment':inventoryAdjustment,
- 'generate-receipt':()=>toast('Abre un pedido para generar su comprobante.','warning')
-}[name]||(()=>{}))();}
-document.addEventListener('click', e => {
-  const menuButton=e.target.closest('#menuBtn');
-  if(menuButton){
-    e.preventDefault();
-    e.stopPropagation();
+
+function toggleMobileMenu() {
+  setMobileMenu(!$('#sidebar')?.classList.contains('open'));
+}
+
+async function navigate(route) {
+  state.route = route;
+  setMobileMenu(false);
+  app.innerHTML = shell('<div id="viewRoot"></div>');
+  await refresh();
+}
+
+async function executeAction(name, dataset = {}) {
+  return executeCommand(name, dataset);
+}
+
+function findOrder(orderId) {
+  return state.orders.find((order) => order.id === orderId)
+    || state.dashboard?.recentOrders?.find((order) => order.id === orderId);
+}
+
+async function handleApplicationClick(event) {
+  const menuButton = event.target.closest('#menuBtn');
+  if (menuButton) {
+    event.preventDefault();
     toggleMobileMenu();
     return;
   }
-  if(e.target.closest('#sidebarOverlay')){
+
+  if (event.target.closest('#sidebarOverlay')) {
     setMobileMenu(false);
     return;
   }
-});
-document.addEventListener('click', e => {
-  const forgotButton = e.target.closest('#forgotPasswordBtn');
-  if(forgotButton){
-    e.preventDefault();
+
+  if (event.target.closest('#forgotPasswordBtn')) {
+    event.preventDefault();
     showPasswordReset();
+    return;
+  }
+
+  if (event.target.closest('#logoutBtn')) {
+    setMobileMenu(false);
+    await signOut();
+    renderLogin();
+    return;
+  }
+
+  const routeTarget = event.target.closest('[data-route]');
+  if (routeTarget) {
+    await navigate(routeTarget.dataset.route);
+    return;
+  }
+
+  const actionTarget = event.target.closest('[data-action]');
+  if (actionTarget) {
+    await executeAction(actionTarget.dataset.action, actionTarget.dataset);
+    return;
+  }
+
+  const saleTarget = event.target.closest('[data-quick-sale-id]');
+  if (saleTarget) {
+    const sale = state.quickSales.find((item) => item.id === saleTarget.dataset.quickSaleId);
+    if (sale) quickSaleReceipt(sale);
+    return;
+  }
+
+  const orderTarget = event.target.closest('[data-order-id]');
+  if (orderTarget) {
+    const order = findOrder(orderTarget.dataset.orderId);
+    if (order) showOrder(order);
+    return;
+  }
+
+  const customerTarget = event.target.closest('[data-edit-customer]');
+  if (customerTarget) {
+    editCustomer(customerTarget.dataset.editCustomer);
+    return;
+  }
+
+  const supplierTarget = event.target.closest('[data-edit-supplier]');
+  if (supplierTarget) {
+    editSupplier(supplierTarget.dataset.editSupplier);
+    return;
+  }
+
+  const productTarget = event.target.closest('[data-edit-product]');
+  if (productTarget) editProduct(productTarget.dataset.editProduct);
+}
+
+function bindTableSearch(selector) {
+  $(selector)?.addEventListener('input', (event) => {
+    const query = event.target.value.trim().toLowerCase();
+    $$('tbody tr').forEach((row) => {
+      row.hidden = Boolean(query && !row.innerText.toLowerCase().includes(query));
+    });
+  });
+}
+
+function bindViewFilters() {
+  $('#orderStatus')?.addEventListener('change', (event) => {
+    const selectedLabel = event.target.selectedOptions[0].text.toLowerCase();
+    $$('tbody tr').forEach((row) => {
+      row.hidden = Boolean(event.target.value && !row.innerText.toLowerCase().includes(selectedLabel));
+    });
+  });
+
+  bindTableSearch('#orderSearch');
+  bindTableSearch('#quickSaleSearch');
+  bindTableSearch('#productSearch');
+  bindTableSearch('#customerSearch');
+
+  $('#supplierSearch')?.addEventListener('input', (event) => {
+    const query = event.target.value.trim().toLowerCase();
+    $$('.supplier-card').forEach((card) => {
+      card.hidden = Boolean(query && !card.innerText.toLowerCase().includes(query));
+    });
+  });
+
+  $('#productVisibility')?.addEventListener('change', (event) => {
+    $$('tbody tr').forEach((row) => {
+      const text = row.innerText.toLowerCase();
+      row.hidden = (event.target.value === 'visible' && !text.includes('publicado'))
+        || (event.target.value === 'hidden' && !text.includes('oculto'));
+    });
+  });
+}
+
+document.addEventListener('click', (event) => {
+  handleApplicationClick(event).catch((error) => {
+    console.error(error);
+    toast(errorMessage(error), 'danger');
+  });
+});
+document.addEventListener('lihen:refresh', refresh);
+subscribe('inventory:updated', refresh);
+subscribe('orders:updated', refresh);
+subscribe('sales:updated', refresh);
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape') {
+    setMobileMenu(false);
+    closeModal();
   }
 });
-document.addEventListener('lihen:refresh',refresh);
-document.addEventListener('keydown',e=>{if(e.key==='Escape'){setMobileMenu(false);closeModal()}});
+
 boot();

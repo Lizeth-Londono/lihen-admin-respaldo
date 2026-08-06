@@ -1,23 +1,15 @@
-import { supabase } from './supabase.js';
 import { state, loadProducts, loadCustomers } from './store.js';
-import { APP_CONFIG } from './config.js';
 import { $, $$, escapeHtml, money, statusLabel, whatsappUrl } from './utils.js';
+import { ORDER_PAYMENT_LABELS, ORDER_STATUSES } from './constants.js';
+import { calculateOrderTotals } from './order-calculations.js';
+import { confirmationMessage, confirmedMessage } from './order-messages.js';
+import { errorMessage } from './errors.js';
+import { getOrderById, createOrderAtomic, updateOrderAtomic, listSavedOrderItems } from './repositories/order-repository.js';
+import { canEditOrder } from './services/order-state-service.js';
+import { orderItemKey as itemKey, normalizeOrderItems as normalizedPayload, compareOrderItems } from './services/order-payload-service.js';
 import { modal, closeModal, toast, badge, totals } from './ui.js';
 import { openReceipt } from './receipts.js';
 
-const PAYMENT_LABELS={sin_definir:'Por confirmar',efectivo_contra_entrega:'Efectivo contra entrega',nequi:'Nequi',llave_bancaria:'Llave bancaria',transferencia:'Transferencia bancaria',otro:'Otro'};
-const ORDER_STATUSES=['solicitud_recibida','validando_disponibilidad','pendiente_proveedor','productos_solicitados','recepcion_parcial','pedido_completo','esperando_medio_pago','confirmado_cliente','preparando_entrega','enviado','entregado','cancelado'];
-
-function itemKey(item){ return `${item.product_id}:${item.variant_id||''}`; }
-function normalizedPayload(items){
-  return items.map(item=>({
-    product_id:String(item.product_id),
-    variant_id:item.variant_id||null,
-    variant_snapshot:item.variant_snapshot||null,
-    quantity:Math.max(1,Number(item.quantity)||1),
-    unit_price:Math.max(0,Number(item.unit_price)||0)
-  }));
-}
 function publishOrderDebug(entry){
   const snapshot={...entry,created_at:new Date().toISOString()};
   window.__LIHEN_LAST_ORDER_SAVE__=snapshot;
@@ -31,32 +23,7 @@ function productOption(p){
   return `<option value="${p.id}" data-price="${Number(p.sale_price)||0}" data-stock="${Number(inv.available_stock)||0}">${escapeHtml(search)} · Stock ${Number(inv.available_stock)||0}</option>`;
 }
 
-async function fetchFullOrder(order){
-  if(!order?.id) return order;
-
-  // Consultamos el encabezado y los productos por separado. Esta estrategia es
-  // más estable que depender únicamente de la relación anidada de PostgREST.
-  const [orderResult, itemsResult] = await Promise.all([
-    supabase
-      .from('orders')
-      .select('*,customer:customers(id,full_name,whatsapp)')
-      .eq('id', order.id)
-      .single(),
-    supabase
-      .from('order_items')
-      .select('id,order_id,product_id,variant_id,variant_snapshot,quantity,unit_price,line_total,product_name_snapshot,quantity_from_stock,quantity_to_source,quantity_reserved,quantity_received')
-      .eq('order_id', order.id)
-      .order('created_at', { ascending: true })
-  ]);
-
-  if(orderResult.error) throw orderResult.error;
-  if(itemsResult.error) throw itemsResult.error;
-
-  return {
-    ...orderResult.data,
-    items: itemsResult.data || []
-  };
-}
+async function fetchFullOrder(order){ return getOrderById(order.id); }
 
 function editorMarkup(order){
   const editing=Boolean(order);
@@ -83,7 +50,7 @@ function editorMarkup(order){
         <label>Tipo de descuento<select name="discount_type" id="discountType"><option value="ninguno">Sin descuento</option><option value="porcentaje">Porcentaje</option><option value="valor_fijo">Valor fijo</option></select></label>
         <label>Valor del descuento<input name="discount_value" id="discountValue" type="number" min="0" value="${Number(order?.discount_value)||0}"></label>
         <label>Costo domicilio<input name="delivery_cost" id="deliveryCost" type="number" min="0" value="${Number(order?.delivery_cost)||0}"></label>
-        <label>Método de pago<select name="payment_method">${Object.entries(PAYMENT_LABELS).map(([v,l])=>`<option value="${v}" ${order?.payment_method===v?'selected':''}>${l}</option>`).join('')}</select></label>
+        <label>Método de pago<select name="payment_method">${Object.entries(ORDER_PAYMENT_LABELS).map(([v,l])=>`<option value="${v}" ${order?.payment_method===v?'selected':''}>${l}</option>`).join('')}</select></label>
         ${editing?`<label>Estado<select name="status">${ORDER_STATUSES.map(v=>`<option value="${v}" ${order.status===v?'selected':''}>${statusLabel(v)}</option>`).join('')}</select></label>`:''}
         <label class="full">Notas internas<textarea name="internal_notes" rows="3">${escapeHtml(order?.internal_notes||'')}</textarea></label>
       </div>
@@ -103,20 +70,20 @@ function buildDraftOrder(form,items,baseOrder={}){
   });
   const discountType=$('#discountType').value;
   const discountValue=Number($('#discountValue').value)||0;
-  const discount_amount=discountType==='porcentaje'?subtotal*discountValue/100:discountType==='valor_fijo'?Math.min(discountValue,subtotal):0;
   const delivery_cost=Number($('#deliveryCost').value)||0;
+  const calculated=calculateOrderTotals(draftItems,{discountType,discountValue,deliveryCost:delivery_cost});
   const fd=Object.fromEntries(new FormData(form));
   const customer=state.customers.find(c=>c.id===fd.customer_id)||baseOrder.customer;
-  return {...baseOrder,customer,customer_id:fd.customer_id,items:draftItems,subtotal,discount_type:discountType,discount_value:discountValue,discount_amount,delivery_cost,total:Math.max(0,subtotal-discount_amount+delivery_cost),payment_method:fd.payment_method,status:fd.status||baseOrder.status||'solicitud_recibida'};
+  return {...baseOrder,customer,customer_id:fd.customer_id,items:draftItems,subtotal:calculated.subtotal,discount_type:discountType,discount_value:discountValue,discount_amount:calculated.discount,delivery_cost,total:calculated.total,payment_method:fd.payment_method,status:fd.status||baseOrder.status||'solicitud_recibida'};
 }
 
 export async function openOrderEditor(order=null){
   try{
     await Promise.all([loadProducts(),loadCustomers()]);
     order=order?await fetchFullOrder(order):null;
-  }catch(err){toast(`No fue posible cargar el pedido: ${err.message}`,'danger');return;}
+  }catch(err){toast(errorMessage(err,'No fue posible cargar el pedido.'),'danger');return;}
 
-  if(order?.status==='entregado'){
+  if(order && !canEditOrder(order.status)){
     toast('Los pedidos entregados están bloqueados para proteger inventario y reportes.','warning');
     return;
   }
@@ -149,13 +116,11 @@ export async function openOrderEditor(order=null){
   });
 
   function totalsFromState(){
-    const subtotal=editorItems.reduce((sum,item)=>sum+(item.quantity*item.unit_price),0);
-    const units=editorItems.reduce((sum,item)=>sum+item.quantity,0);
-    const type=$('#discountType').value;
-    const value=Number($('#discountValue').value)||0;
-    const discount=type==='porcentaje'?subtotal*Math.min(value,100)/100:type==='valor_fijo'?Math.min(value,subtotal):0;
-    const delivery=Number($('#deliveryCost').value)||0;
-    return {subtotal,units,discount,delivery,total:Math.max(0,subtotal-discount+delivery)};
+    return calculateOrderTotals(editorItems,{
+      discountType:$('#discountType').value,
+      discountValue:Number($('#discountValue').value)||0,
+      deliveryCost:Number($('#deliveryCost').value)||0
+    });
   }
 
   function updateSummary(){
@@ -299,7 +264,7 @@ export async function openOrderEditor(order=null){
         console.log('payload.items exacto enviado a Supabase:');
         console.table(payload);
 
-        const {data,error}=await supabase.rpc('update_order_atomic_v2',{
+        const data=await updateOrderAtomic({
           p_order_id:order.id,
           p_customer_id:fields.customer_id,
           p_payment_method:fields.payment_method,
@@ -310,39 +275,14 @@ export async function openOrderEditor(order=null){
           p_status:fields.status,
           p_items:payload
         });
-        publishOrderDebug({...debugBase,stage:'rpc-response',rpc_data:data||null,rpc_error:error||null});
-        console.log('Respuesta update_order_atomic_v2:', {data,error});
-        if(error){
-          const detail=[error.code,error.message,error.details,error.hint].filter(Boolean).join(' · ');
-          throw new Error(detail||'Supabase no pudo actualizar el pedido.');
-        }
+        publishOrderDebug({...debugBase,stage:'rpc-response',rpc_data:data||null,rpc_error:null});
+        console.log('Respuesta update_order_atomic_v2:', {data,error:null});
 
         // Verificación real contra la tabla: no mostramos éxito hasta comprobar
         // productos, variantes, cantidades y precios guardados.
-        const {data:savedItems,error:savedItemsError}=await supabase
-          .from('order_items')
-          .select('id,order_id,product_id,variant_id,quantity,unit_price,line_total,product_name_snapshot')
-          .eq('order_id',order.id)
-          .order('created_at',{ascending:true});
-        if(savedItemsError){
-          const detail=[savedItemsError.code,savedItemsError.message,savedItemsError.details,savedItemsError.hint].filter(Boolean).join(' · ');
-          throw new Error(detail||'No fue posible verificar los productos guardados.');
-        }
-
-        const keyOf=item=>`${item.product_id}:${item.variant_id||''}`;
-        const expected=new Map(payload.map(item=>[keyOf(item),{
-          quantity:Number(item.quantity),
-          unit_price:Number(item.unit_price)
-        }]));
-        const actual=new Map((savedItems||[]).map(item=>[keyOf(item),{
-          quantity:Number(item.quantity),
-          unit_price:Number(item.unit_price)
-        }]));
-        const matches=expected.size===actual.size&&[...expected].every(([key,value])=>{
-          const saved=actual.get(key);
-          return saved&&saved.quantity===value.quantity&&Math.abs(saved.unit_price-value.unit_price)<0.01;
-        });
-        const verification={requestId,expected:[...expected.entries()],actual:[...actual.entries()],rpc:data,matches};
+        const savedItems=await listSavedOrderItems(order.id);
+        const matches=compareOrderItems(payload,savedItems);
+        const verification={requestId,expected:payload,actual:savedItems,rpc:data,matches};
         publishOrderDebug({...debugBase,stage:'verified',...verification});
         console.log('[LIHEN] Verificación posterior:',verification);
         console.groupEnd();
@@ -352,7 +292,7 @@ export async function openOrderEditor(order=null){
         const savedOrder=data?.order||data;
         toast(`Pedido ${savedOrder?.order_number||order.order_number} actualizado correctamente`);
       }else{
-        const {data,error}=await supabase.rpc('create_order_atomic',{
+        const data=await createOrderAtomic({
           p_customer_id:fields.customer_id,
           p_delivery_address_id:null,
           p_payment_method:fields.payment_method,
@@ -364,7 +304,6 @@ export async function openOrderEditor(order=null){
           p_internal_notes:fields.internal_notes||null,
           p_items:payload
         });
-        if(error)throw error;
         closeModal();
         toast(`Pedido ${data.order_number} creado y stock reservado`);
       }
@@ -384,11 +323,12 @@ export async function openOrderEditor(order=null){
 
 function buildDraftOrderFromState(form,editorItems,baseOrder={}){
   const fields=Object.fromEntries(new FormData(form));
-  const subtotal=editorItems.reduce((sum,item)=>sum+item.quantity*item.unit_price,0);
   const discountType=fields.discount_type||'ninguno';
   const discountValue=Number(fields.discount_value)||0;
-  const discount_amount=discountType==='porcentaje'?subtotal*Math.min(discountValue,100)/100:discountType==='valor_fijo'?Math.min(discountValue,subtotal):0;
   const delivery_cost=Number(fields.delivery_cost)||0;
+  const calculated=calculateOrderTotals(editorItems,{discountType,discountValue,deliveryCost:delivery_cost});
+  const subtotal=calculated.subtotal;
+  const discount_amount=calculated.discount;
   const customer=state.customers.find(c=>c.id===fields.customer_id)||baseOrder.customer;
   return {
     ...baseOrder,
@@ -407,15 +347,11 @@ function buildDraftOrderFromState(form,editorItems,baseOrder={}){
     discount_value:discountValue,
     discount_amount,
     delivery_cost,
-    total:Math.max(0,subtotal-discount_amount+delivery_cost),
+    total:calculated.total,
     payment_method:fields.payment_method,
     status:fields.status||baseOrder.status||'solicitud_recibida'
   };
 }
-
-function productLines(order){const lines=(order.items||[]).map(i=>`• ${i.product_name_snapshot} — ${i.quantity} ${i.quantity===1?'unidad':'unidades'} — ${money(i.line_total)}`);return lines.length?lines.join('\n'):'• No se encontraron productos asociados. Revisa el pedido antes de enviarlo.';}
-export function confirmationMessage(order){return `Hola, ${order.customer?.full_name||''} 👋\n\nGracias por elegir LIHEN.CO ✨\n\nTe compartimos el resumen de tu pedido para que puedas revisarlo:\n\nPedido: ${order.order_number||'Por asignar'}\n\nProductos:\n${productLines(order)}\n\nSubtotal: ${money(order.subtotal)}\nDescuento: ${money(order.discount_amount)}\nDomicilio: ${money(order.delivery_cost)}\nTotal: ${money(order.total)}\n\nMétodo de pago: ${PAYMENT_LABELS[order.payment_method]||'Por confirmar'}\n\nPor favor confírmanos:\n1. Si los productos y cantidades están correctos.\n2. Si deseas agregar o retirar algún producto.\n3. Tu método de pago: efectivo contra entrega, Nequi, llave bancaria o transferencia.\n\nCuando tengamos tu confirmación, continuaremos con la preparación de tu pedido.\n\nConoce nuestro catálogo:\n${APP_CONFIG.catalogUrl}\n\nLIHEN.CO\nBeauty Care | Style`;}
-export function confirmedMessage(order){const pending=(order.items||[]).some(i=>Number(i.quantity_to_source)>0);return `Hola, ${order.customer?.full_name||''} 👋\n\nTu pedido LIHEN.CO fue confirmado correctamente ✨\n\nPedido: ${order.order_number}\nTotal: ${money(order.total)}\nMétodo de pago: ${PAYMENT_LABELS[order.payment_method]||'Por confirmar'}\nEstado: ${statusLabel(order.status)}\n\n${pending?'Algunos productos están siendo solicitados al proveedor. Te mantendremos informada sobre el avance.':'Estamos preparando tus productos. Te avisaremos cuando el pedido esté listo para entrega.'}\n\nGracias por confiar en LIHEN.CO 🤎`;}
 
 export function openSummaryPreview(order,{returnToEditor=false}={}){
   const message=confirmationMessage(order);

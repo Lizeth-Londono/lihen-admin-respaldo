@@ -1,9 +1,9 @@
-import { supabase } from './supabase.js';
+import { createQuickSaleAtomic, cancelQuickSaleAtomic } from './repositories/quick-sale-repository.js';
+import { QUICK_SALE_QUICK_SALE_PAYMENT_LABELS } from './constants.js';
 import { state, loadProducts, loadCustomers, loadQuickSales } from './store.js';
 import { $, $$, escapeHtml, money, dateTime, whatsappUrl } from './utils.js';
 import { modal, closeModal, toast } from './ui.js';
 
-const PAYMENT_LABELS={efectivo:'Efectivo',nequi:'Nequi',transferencia:'Transferencia',llave_bancaria:'Llave bancaria',datafono:'Datáfono',otro:'Otro'};
 let saleItems=[];
 
 function optionMarkup(p){
@@ -55,7 +55,7 @@ export async function newQuickSale(){
     </section>
     <section class="order-items-section"><div class="section-title"><div><p class="eyebrow">PRODUCTOS VENDIDOS</p><h3 id="quickSaleCount">0 productos</h3></div></div><div id="quickSaleItems" class="sale-items-list"></div></section>
     <div class="form-grid">
-      <label>Método de pago<select name="payment_method" required>${Object.entries(PAYMENT_LABELS).map(([v,l])=>`<option value="${v}">${l}</option>`).join('')}</select></label>
+      <label>Método de pago<select name="payment_method" required>${Object.entries(QUICK_SALE_PAYMENT_LABELS).map(([v,l])=>`<option value="${v}">${l}</option>`).join('')}</select></label>
       <label>Referencia / comprobante<input name="payment_reference" placeholder="Ej. Nequi MI1988910"></label>
       <label>Tipo de descuento<select id="quickSaleDiscountType" name="discount_type"><option value="ninguno">Sin descuento</option><option value="porcentaje">Porcentaje</option><option value="valor_fijo">Valor fijo</option></select></label>
       <label>Valor del descuento<input id="quickSaleDiscountValue" name="discount_value" type="number" min="0" value="0"></label>
@@ -82,16 +82,15 @@ export async function newQuickSale(){
     const button=$('button[type="submit"]',e.currentTarget),fd=Object.fromEntries(new FormData(e.currentTarget));button.disabled=true;button.textContent='Guardando…';
     const payload=saleItems.map(i=>({product_id:i.product_id,variant_id:i.variant_id,variant_snapshot:i.variant_snapshot,quantity:i.quantity,unit_price:i.unit_price}));
     try{
-      const {data,error}=await supabase.rpc('create_quick_sale_atomic',{p_customer_id:fd.customer_id||null,p_payment_method:fd.payment_method,p_payment_reference:fd.payment_reference||null,p_discount_type:fd.discount_type,p_discount_value:Number(fd.discount_value)||0,p_notes:fd.notes||null,p_items:payload});
-      if(error)throw error;closeModal();toast(`Venta ${data.sale.sale_number} registrada y stock actualizado`);document.dispatchEvent(new CustomEvent('lihen:refresh'));
+      const data=await createQuickSaleAtomic({p_customer_id:fd.customer_id||null,p_payment_method:fd.payment_method,p_payment_reference:fd.payment_reference||null,p_discount_type:fd.discount_type,p_discount_value:Number(fd.discount_value)||0,p_notes:fd.notes||null,p_items:payload});closeModal();toast(`Venta ${data.sale.sale_number} registrada y stock actualizado`);document.dispatchEvent(new CustomEvent('lihen:refresh'));
     }catch(err){button.disabled=false;button.textContent='Guardar venta';toast(err.message||'No fue posible registrar la venta','danger');}
   };
 }
 
 export function quickSaleReceipt(sale){
   const customer=sale.customer?.full_name||'Consumidor final';
-  const msg=`Hola, ${customer==='Consumidor final'?'':customer+' '}🤎\n\nGracias por comprar en LIHEN.CO.\n\nVenta: ${sale.sale_number}\nTotal pagado: ${money(sale.total)}\nMétodo de pago: ${PAYMENT_LABELS[sale.payment_method]||sale.payment_method}\n\nEsperamos que disfrutes mucho tus productos y que muy pronto vuelvas a elegirnos ✨\n\nLIHEN.CO\nBeauty Care | Style`;
-  modal(`Venta ${sale.sale_number}`,`<article class="receipt-sheet"><header class="receipt-brand"><img src="assets/logo-lihen.jpg"><div><p>COMPROBANTE DE VENTA RÁPIDA</p><h2>${escapeHtml(sale.sale_number)}</h2></div></header><div class="receipt-meta"><div><span>Fecha</span><b>${dateTime(sale.created_at)}</b></div><div><span>Cliente</span><b>${escapeHtml(customer)}</b></div><div><span>Pago</span><b>${escapeHtml(PAYMENT_LABELS[sale.payment_method]||sale.payment_method)}</b></div><div><span>Referencia</span><b>${escapeHtml(sale.payment_reference||'—')}</b></div></div><table class="receipt-table"><thead><tr><th>Producto</th><th>Cant.</th><th>Valor</th><th>Total</th></tr></thead><tbody>${(sale.items||[]).map(i=>`<tr><td>${escapeHtml(i.product_name_snapshot)}</td><td>${i.quantity}</td><td>${money(i.unit_price)}</td><td>${money(i.line_total)}</td></tr>`).join('')}</tbody></table><div class="receipt-summary"><div><span>Subtotal</span><b>${money(sale.subtotal)}</b></div><div><span>Descuento</span><b>− ${money(sale.discount_amount)}</b></div><div class="receipt-total"><span>Total pagado</span><strong>${money(sale.total)}</strong></div></div>${sale.status==='anulada'?'<div class="alert danger"><b>Venta anulada</b><br>El stock fue reintegrado.</div>':''}<footer class="receipt-footer"><p>Gracias por elegir LIHEN.CO</p><span>Beauty Care | Style</span></footer></article>`,{wide:true,footer:`${sale.status==='completada'?'<button class="button ghost" id="cancelQuickSaleBtn">Anular venta</button>':''}<button class="button ghost" id="printQuickSale">Descargar / Guardar PDF</button>${sale.customer?.whatsapp&&sale.status==='completada'?`<a class="button whatsapp" target="_blank" rel="noopener noreferrer" href="${whatsappUrl(sale.customer.whatsapp,msg)}">Enviar por WhatsApp</a>`:''}`});
+  const msg=`Hola, ${customer==='Consumidor final'?'':customer+' '}🤎\n\nGracias por comprar en LIHEN.CO.\n\nVenta: ${sale.sale_number}\nTotal pagado: ${money(sale.total)}\nMétodo de pago: ${QUICK_SALE_PAYMENT_LABELS[sale.payment_method]||sale.payment_method}\n\nEsperamos que disfrutes mucho tus productos y que muy pronto vuelvas a elegirnos ✨\n\nLIHEN.CO\nBeauty Care | Style`;
+  modal(`Venta ${sale.sale_number}`,`<article class="receipt-sheet"><header class="receipt-brand"><img src="assets/logo-lihen.jpg"><div><p>COMPROBANTE DE VENTA RÁPIDA</p><h2>${escapeHtml(sale.sale_number)}</h2></div></header><div class="receipt-meta"><div><span>Fecha</span><b>${dateTime(sale.created_at)}</b></div><div><span>Cliente</span><b>${escapeHtml(customer)}</b></div><div><span>Pago</span><b>${escapeHtml(QUICK_SALE_PAYMENT_LABELS[sale.payment_method]||sale.payment_method)}</b></div><div><span>Referencia</span><b>${escapeHtml(sale.payment_reference||'—')}</b></div></div><table class="receipt-table"><thead><tr><th>Producto</th><th>Cant.</th><th>Valor</th><th>Total</th></tr></thead><tbody>${(sale.items||[]).map(i=>`<tr><td>${escapeHtml(i.product_name_snapshot)}</td><td>${i.quantity}</td><td>${money(i.unit_price)}</td><td>${money(i.line_total)}</td></tr>`).join('')}</tbody></table><div class="receipt-summary"><div><span>Subtotal</span><b>${money(sale.subtotal)}</b></div><div><span>Descuento</span><b>− ${money(sale.discount_amount)}</b></div><div class="receipt-total"><span>Total pagado</span><strong>${money(sale.total)}</strong></div></div>${sale.status==='anulada'?'<div class="alert danger"><b>Venta anulada</b><br>El stock fue reintegrado.</div>':''}<footer class="receipt-footer"><p>Gracias por elegir LIHEN.CO</p><span>Beauty Care | Style</span></footer></article>`,{wide:true,footer:`${sale.status==='completada'?'<button class="button ghost" id="cancelQuickSaleBtn">Anular venta</button>':''}<button class="button ghost" id="printQuickSale">Descargar / Guardar PDF</button>${sale.customer?.whatsapp&&sale.status==='completada'?`<a class="button whatsapp" target="_blank" rel="noopener noreferrer" href="${whatsappUrl(sale.customer.whatsapp,msg)}">Enviar por WhatsApp</a>`:''}`});
   $('#printQuickSale')?.addEventListener('click',()=>window.print());
   $('#cancelQuickSaleBtn')?.addEventListener('click',async()=>{await cancelQuickSale(sale);closeModal();});
 }

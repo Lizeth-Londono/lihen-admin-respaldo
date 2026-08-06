@@ -10,6 +10,8 @@ import {
 } from './utils.js';
 
 import { state } from './store.js';
+import { NAVIGATION_ITEMS } from './constants.js';
+export { login, passwordSetup } from './ui-auth.js';
 
 export function toast(message, type = 'success') {
   let root = $('#toastRoot');
@@ -81,22 +83,11 @@ export function empty(icon, title, text, action = '') {
   `;
 }
 
-const NAV = [
-  ['dashboard', '⌂', 'Inicio'],
-  ['orders', '▤', 'Pedidos'],
-  ['quick-sales', '🛒', 'Ventas rápidas'],
-  ['inventory', '▦', 'Inventario y catálogo'],
-  ['suppliers', '◇', 'Proveedores'],
-  ['customers', '♡', 'Clientes'],
-  ['receipts', '▧', 'Comprobantes'],
-  ['movements', '↺', 'Movimientos'],
-  ['reports', '↗', 'Reportes'],
-  ['settings', '⚙', 'Configuración']
-];
+
 
 export function shell(content) {
   const profile = state.profile || {};
-  const route = NAV.find((item) => item[0] === state.route) || NAV[0];
+  const route = NAVIGATION_ITEMS.find((item) => item.id === state.route) || NAVIGATION_ITEMS[0];
 
   return `
     <div class="app-shell">
@@ -111,7 +102,7 @@ export function shell(content) {
         </div>
 
         <nav>
-          ${NAV.map(([id, icon, label]) => `
+          ${NAVIGATION_ITEMS.map(({ id, icon, label }) => `
             <button
               type="button"
               data-route="${id}"
@@ -168,7 +159,7 @@ export function shell(content) {
 
           <div>
             <small>LIHEN.CO · CENTRO OPERATIVO</small>
-            <h1>${escapeHtml(route[2])}</h1>
+            <h1>${escapeHtml(route.label)}</h1>
           </div>
 
           <div class="top-actions">
@@ -186,183 +177,6 @@ export function shell(content) {
         </main>
       </div>
     </div>
-
-    <div id="modalRoot"></div>
-    <div id="toastRoot"></div>
-  `;
-}
-
-export function login(error = '') {
-  return `
-    <main class="login-page">
-      <section class="login-visual">
-        <div class="orb one"></div>
-        <div class="orb two"></div>
-
-        <div class="login-quote">
-          <span>Beauty Care · Style</span>
-
-          <h2>
-            Todo lo que LIHEN necesita para operar,
-            en un solo lugar.
-          </h2>
-
-          <p>
-            Inventario, pedidos, proveedores, clientes y comprobantes
-            con control seguro.
-          </p>
-        </div>
-      </section>
-
-      <section class="login-panel">
-        <form id="loginForm" class="login-card">
-          <img src="assets/logo-lihen.jpg" alt="LIHEN">
-
-          <p class="eyebrow">PLATAFORMA PRIVADA</p>
-
-          <h1>Bienvenidas a LIHEN</h1>
-
-          <p>
-            Ingresa con tu cuenta individual de cofundadora.
-          </p>
-
-          ${
-            error
-              ? `<div class="alert danger">${escapeHtml(error)}</div>`
-              : ''
-          }
-
-          <label>
-            Correo electrónico
-
-            <input
-              name="email"
-              type="email"
-              autocomplete="email"
-              required
-              placeholder="nombre@lihen.co"
-            >
-          </label>
-
-          <label>
-            Contraseña
-
-            <input
-              name="password"
-              type="password"
-              autocomplete="current-password"
-              required
-              minlength="8"
-              placeholder="••••••••"
-            >
-          </label>
-
-          <button
-            class="button primary wide"
-            type="submit"
-          >
-            Ingresar de forma segura
-          </button>
-
-          <button
-            class="text-button login-help"
-            id="forgotPasswordBtn"
-            type="button"
-          >
-            ¿Olvidaste tu contraseña?
-          </button>
-
-          <small class="privacy">
-            Los datos administrativos solo están disponibles
-            para cuentas autorizadas.
-          </small>
-        </form>
-      </section>
-    </main>
-
-    <div id="modalRoot"></div>
-    <div id="toastRoot"></div>
-  `;
-}
-
-export function passwordSetup(error = '') {
-  return `
-    <main class="login-page">
-      <section class="login-visual">
-        <div class="orb one"></div>
-        <div class="orb two"></div>
-
-        <div class="login-quote">
-          <span>ACCESO SEGURO</span>
-
-          <h2>
-            Activa tu cuenta de cofundadora.
-          </h2>
-
-          <p>
-            Crea una contraseña personal para entrar
-            al centro operativo privado de LIHEN.
-          </p>
-        </div>
-      </section>
-
-      <section class="login-panel">
-        <form id="passwordSetupForm" class="login-card">
-          <img src="assets/logo-lihen.jpg" alt="LIHEN">
-
-          <p class="eyebrow">CONFIGURACIÓN DE ACCESO</p>
-
-          <h1>Crear contraseña</h1>
-
-          <p>
-            La contraseña debe tener mínimo 8 caracteres.
-          </p>
-
-          ${
-            error
-              ? `<div class="alert danger">${escapeHtml(error)}</div>`
-              : ''
-          }
-
-          <label>
-            Nueva contraseña
-
-            <input
-              name="password"
-              type="password"
-              autocomplete="new-password"
-              required
-              minlength="8"
-              placeholder="••••••••"
-            >
-          </label>
-
-          <label>
-            Confirmar contraseña
-
-            <input
-              name="confirm_password"
-              type="password"
-              autocomplete="new-password"
-              required
-              minlength="8"
-              placeholder="••••••••"
-            >
-          </label>
-
-          <button
-            class="button primary wide"
-            type="submit"
-          >
-            Guardar y entrar
-          </button>
-
-          <small class="privacy">
-            Cada cofundadora debe usar una contraseña individual.
-          </small>
-        </form>
-      </section>
-    </main>
 
     <div id="modalRoot"></div>
     <div id="toastRoot"></div>
