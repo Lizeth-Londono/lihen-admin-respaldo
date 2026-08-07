@@ -143,7 +143,7 @@ as $$ declare v public.financial_accounts; v_user uuid:=auth.uid(); begin
  if not found or not v.active then raise exception 'Cuenta no disponible'; end if;
  if v.initial_balance_configured then raise exception 'El saldo inicial ya fue configurado'; end if;
  update public.financial_accounts set initial_balance=p_amount,current_balance=p_amount,initial_balance_date=p_effective_date,initial_balance_configured=true,updated_by=v_user,updated_at=now() where id=v.id returning * into v;
- if p_amount>0 then insert into public.financial_movements(account_id,movement_type,amount,balance_before,balance_after,category,description,operation_key,performed_by,occurred_at) values(v.id,'saldo_inicial',p_amount,0,p_amount,'saldo_inicial',p_reason,p_operation_key,v_user,coalesce(p_effective_date,current_date)::timestamptz); end if;
+ if p_amount>0 then insert into public.financial_movements(account_id,movement_type,amount,balance_before,balance_after,category,description,operation_key,performed_by,created_by,occurred_at) values(v.id,'saldo_inicial',p_amount,0,p_amount,'saldo_inicial',p_reason,p_operation_key,v_user,v_user,coalesce(p_effective_date,current_date)::timestamptz); end if;
  return v;
 end $$;
 

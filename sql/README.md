@@ -63,3 +63,13 @@ Si Supabase ya tiene instaladas las migraciones hasta la 031, ejecute únicament
 `032_compatibilidad_plantilla_inventario_2026_08_07.sql`
 
 Esta migración no carga productos ni modifica stock por sí sola. Refuerza la RPC de importación, conserva historial de costos importados y evita reemplazar automáticamente el proveedor preferido.
+
+## Migración 033 — corrección de `created_by`
+
+Si al configurar el saldo inicial aparece el error `financial_movements.created_by violates not-null constraint`, ejecuta únicamente:
+
+```text
+033_corregir_created_by_movimientos_financieros.sql
+```
+
+No repitas las migraciones anteriores.
