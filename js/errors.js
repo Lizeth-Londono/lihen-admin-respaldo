@@ -16,13 +16,19 @@ export async function withPendingButton(button, pendingLabel, task) {
   if (!button || button.disabled) return undefined;
 
   const originalLabel = button.textContent;
+  const originalAriaLabel = button.getAttribute('aria-label');
   button.disabled = true;
+  button.setAttribute('aria-busy', 'true');
+  button.setAttribute('aria-disabled', 'true');
   button.textContent = pendingLabel;
 
   try {
     return await task();
   } finally {
     button.disabled = false;
+    button.removeAttribute('aria-busy');
+    button.removeAttribute('aria-disabled');
+    if (originalAriaLabel) button.setAttribute('aria-label', originalAriaLabel);
     button.textContent = originalLabel;
   }
 }

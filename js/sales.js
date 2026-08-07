@@ -1,8 +1,9 @@
 import { createQuickSaleAtomic, cancelQuickSaleAtomic } from './repositories/quick-sale-repository.js';
 import { QUICK_SALE_PAYMENT_LABELS } from './constants.js';
-import { state, loadProducts, loadCustomers, loadQuickSales } from './store.js';
+import { state, loadProducts, loadCustomers, loadQuickSales, loadFinancialAccounts } from './store.js';
 import { $, $$, escapeHtml, money, dateTime, whatsappUrl } from './utils.js';
 import { modal, closeModal, toast } from './ui.js';
+import { confirmAction } from './services/confirmation-service.js';
 
 let saleItems=[];
 
@@ -42,7 +43,7 @@ function bindRows(){
 }
 
 export async function newQuickSale(){
-  await Promise.all([loadProducts(),loadCustomers()]);
+  await Promise.all([loadProducts(),loadCustomers(),loadFinancialAccounts()]);
   saleItems=[];
   modal('Nueva venta rápida',`<form id="quickSaleForm" class="quick-sale-form">
     <div class="form-grid">
@@ -56,6 +57,7 @@ export async function newQuickSale(){
     <section class="order-items-section"><div class="section-title"><div><p class="eyebrow">PRODUCTOS VENDIDOS</p><h3 id="quickSaleCount">0 productos</h3></div></div><div id="quickSaleItems" class="sale-items-list"></div></section>
     <div class="form-grid">
       <label>Método de pago<select name="payment_method" required>${Object.entries(QUICK_SALE_PAYMENT_LABELS).map(([v,l])=>`<option value="${v}">${l}</option>`).join('')}</select></label>
+      <label>Cuenta que recibió el dinero<select name="financial_account_id" required><option value="">Selecciona la cuenta</option>${state.financialAccounts.filter(a=>a.active!==false&&a.initial_balance_configured).map(a=>`<option value="${a.id}" data-code="${escapeHtml(a.code||'')}">${escapeHtml(a.name)} · ${money(a.current_balance)}</option>`).join('')}</select></label>
       <label>Referencia / comprobante<input name="payment_reference" placeholder="Ej. Nequi MI1988910"></label>
       <label>Tipo de descuento<select id="quickSaleDiscountType" name="discount_type"><option value="ninguno">Sin descuento</option><option value="porcentaje">Porcentaje</option><option value="valor_fijo">Valor fijo</option></select></label>
       <label>Valor del descuento<input id="quickSaleDiscountValue" name="discount_value" type="number" min="0" value="0"></label>
@@ -76,13 +78,22 @@ export async function newQuickSale(){
     else saleItems.push({product_id:product.value,variant_id:null,variant_snapshot:null,name:opt.textContent.split(' · ')[0],sku:opt.textContent.split(' · ')[1]||'',stock,quantity:qty,unit_price:Math.max(0,Number(price.value)||0)});
     product.value='';quantity.value=1;price.value=0;renderSaleItems();product.focus();
   };
+  const paymentMethod=$('[name="payment_method"]',$('#quickSaleForm'));
+  const financialAccount=$('[name="financial_account_id"]',$('#quickSaleForm'));
+  const suggestAccount=()=>{
+    const preferred=paymentMethod.value==='nequi'?'nequi':paymentMethod.value==='efectivo'?'efectivo':null;
+    if(!preferred)return;
+    const option=[...financialAccount.options].find(item=>item.dataset.code===preferred);
+    if(option)financialAccount.value=option.value;
+  };
+  paymentMethod.addEventListener('change',suggestAccount);suggestAccount();
   $('#quickSaleDiscountType').onchange=renderSaleItems;$('#quickSaleDiscountValue').oninput=renderSaleItems;renderSaleItems();
   $('#quickSaleForm').onsubmit=async e=>{
     e.preventDefault();if(!saleItems.length){toast('Agrega al menos un producto','warning');return;}
     const button=$('button[type="submit"]',e.currentTarget),fd=Object.fromEntries(new FormData(e.currentTarget));button.disabled=true;button.textContent='Guardando…';
     const payload=saleItems.map(i=>({product_id:i.product_id,variant_id:i.variant_id,variant_snapshot:i.variant_snapshot,quantity:i.quantity,unit_price:i.unit_price}));
     try{
-      const data=await createQuickSaleAtomic({p_customer_id:fd.customer_id||null,p_payment_method:fd.payment_method,p_payment_reference:fd.payment_reference||null,p_discount_type:fd.discount_type,p_discount_value:Number(fd.discount_value)||0,p_notes:fd.notes||null,p_items:payload});closeModal();toast(`Venta ${data.sale.sale_number} registrada y stock actualizado`);document.dispatchEvent(new CustomEvent('lihen:refresh'));
+      const data=await createQuickSaleAtomic({p_customer_id:fd.customer_id||null,p_payment_method:fd.payment_method,p_financial_account_id:fd.financial_account_id,p_payment_reference:fd.payment_reference||null,p_discount_type:fd.discount_type,p_discount_value:Number(fd.discount_value)||0,p_notes:fd.notes||null,p_items:payload});closeModal();toast(`Venta ${data.sale.sale_number} registrada y stock actualizado`);document.dispatchEvent(new CustomEvent('lihen:refresh'));
     }catch(err){button.disabled=false;button.textContent='Guardar venta';toast(err.message||'No fue posible registrar la venta','danger');}
   };
 }
@@ -110,7 +121,7 @@ export async function cancelQuickSale(sale){
     event.preventDefault();
     const reason=String(new FormData(form).get('reason')||'').trim();
     if(reason.length<8)return toast('Escribe un motivo claro de al menos 8 caracteres.','warning');
-    if(!window.confirm('La venta será anulada y las unidades volverán al stock. ¿Deseas continuar?'))return;
+    const accepted=await confirmAction({title:`Anular ${sale.sale_number}`,message:'La venta quedará anulada y las unidades volverán al inventario. El registro original se conservará para auditoría.',confirmLabel:'Anular venta',tone:'danger',details:[{label:'Venta',value:sale.sale_number||'—'},{label:'Total',value:money(sale.total||0)},{label:'Motivo',value:reason}]});if(!accepted)return;
     const button=form.querySelector('button[type="submit"]');
     button.disabled=true;button.textContent='Anulando…';
     try{

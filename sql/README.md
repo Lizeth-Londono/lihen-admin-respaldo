@@ -33,3 +33,25 @@ Ejecuta `009_corregir_guardado_edicion_pedidos.sql` para corregir la persistenci
 
 ## Migración 011 — Ventas rápidas
 Ejecuta `011_ventas_rapidas_pos.sql` una sola vez para crear el módulo POS ligero, tablas, RLS y RPC transaccionales.
+
+## Migraciones de ampliación LIHEN
+
+Después de las migraciones base, ejecutar en orden `022` a `029`. La migración `029_coherencia_migraciones_fase_24.sql` es la capa final de compatibilidad entre los nombres de columnas usados durante la evolución de compras, caja, pagos y reportes. Al terminar, ejecutar:
+
+```sql
+select public.validate_lihen_schema_coherence();
+```
+
+## Instalación simplificada — archivo consolidado
+
+Para una base LIHEN que ya tenga instaladas las migraciones históricas 001 a 013, puede ejecutarse un solo archivo:
+
+`supabase_migracion_compras_caja_inventario_CONSOLIDADA.sql`
+
+Este archivo incluye, en orden, los bloques 022 a 029. No debe combinarse con una ejecución simultánea de esos mismos archivos individuales. Después de ejecutarlo, validar con:
+
+```sql
+select public.validate_lihen_schema_coherence();
+```
+
+Consulta `docs/GUIA_INSTALACION_MIGRACION_CONSOLIDADA.md` antes de aplicarlo en producción.

@@ -13,6 +13,8 @@ import { state } from './store.js';
 import { NAVIGATION_ITEMS } from './constants.js';
 export { login, passwordSetup } from './ui-auth.js';
 
+let lastFocusedElement = null;
+
 export function toast(message, type = 'success') {
   let root = $('#toastRoot');
 
@@ -24,6 +26,8 @@ export function toast(message, type = 'success') {
 
   const element = document.createElement('div');
   element.className = `toast ${type}`;
+  element.setAttribute('role', type === 'danger' ? 'alert' : 'status');
+  element.setAttribute('aria-live', type === 'danger' ? 'assertive' : 'polite');
   element.textContent = message;
 
   root.append(element);
@@ -43,8 +47,8 @@ export function toast(message, type = 'success') {
 
 export function spinner(label = 'Cargando información…') {
   return `
-    <div class="loading">
-      <span class="spinner"></span>
+    <div class="loading" role="status" aria-live="polite" aria-busy="true">
+      <span class="spinner" aria-hidden="true"></span>
       <p>${escapeHtml(label)}</p>
     </div>
   `;
@@ -74,7 +78,7 @@ export function metric(icon, label, value, detail, tone = 'gold') {
 
 export function empty(icon, title, text, action = '') {
   return `
-    <div class="empty">
+    <div class="empty" role="status">
       <span>${icon}</span>
       <h3>${escapeHtml(title)}</h3>
       <p>${escapeHtml(text)}</p>
@@ -101,12 +105,13 @@ export function shell(content) {
           </div>
         </div>
 
-        <nav>
+        <nav aria-label="Navegación principal">
           ${NAVIGATION_ITEMS.map(({ id, icon, label }) => `
             <button
               type="button"
               data-route="${id}"
               class="nav-item ${state.route === id ? 'active' : ''}"
+              ${state.route === id ? 'aria-current="page"' : ''}
             >
               <span>${icon}</span>
               ${label}
@@ -172,7 +177,7 @@ export function shell(content) {
           </div>
         </header>
 
-        <main class="content">
+        <main class="content" id="mainContent" tabindex="-1">
           ${content}
         </main>
       </div>
@@ -199,6 +204,7 @@ export function modal(
     document.body.appendChild(modalRoot);
   }
 
+  lastFocusedElement = document.activeElement;
   modalRoot.innerHTML = `
     <div class="modal-backdrop">
       <section
@@ -248,12 +254,34 @@ export function modal(
     }
   });
 
-  document.addEventListener('keydown', handleModalEscape);
+  document.addEventListener('keydown', handleModalKeydown);
+
+  requestAnimationFrame(() => {
+    const dialog = $('.modal', modalRoot);
+    const firstFocusable = dialog?.querySelector('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])');
+    firstFocusable?.focus();
+  });
 }
 
-function handleModalEscape(event) {
+function handleModalKeydown(event) {
   if (event.key === 'Escape') {
     closeModal();
+    return;
+  }
+
+  if (event.key !== 'Tab') return;
+  const dialog = $('.modal');
+  if (!dialog) return;
+  const focusable = [...dialog.querySelectorAll('button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])')];
+  if (!focusable.length) return;
+  const first = focusable[0];
+  const last = focusable[focusable.length - 1];
+  if (event.shiftKey && document.activeElement === first) {
+    event.preventDefault();
+    last.focus();
+  } else if (!event.shiftKey && document.activeElement === last) {
+    event.preventDefault();
+    first.focus();
   }
 }
 
@@ -264,7 +292,9 @@ export function closeModal() {
     root.innerHTML = '';
   }
 
-  document.removeEventListener('keydown', handleModalEscape);
+  document.removeEventListener('keydown', handleModalKeydown);
+  if (lastFocusedElement instanceof HTMLElement) lastFocusedElement.focus();
+  lastFocusedElement = null;
 }
 
 export function formatMovement(movement) {

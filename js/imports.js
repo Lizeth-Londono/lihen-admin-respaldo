@@ -2,6 +2,9 @@ import { supabase } from './supabase.js';
 import { state, loadProducts, loadSuppliers, loadCustomers } from './store.js';
 import { $, escapeHtml } from './utils.js';
 import { modal, closeModal, toast } from './ui.js';
+import { buildInventoryImportPlan, buildRejectedRows, getInventoryImportChangeLabels, buildInventoryImportBatchPayload, createInventoryImportOperationKey } from './services/inventory-import-service.js';
+import { importInventoryBatchAtomic } from './repositories/inventory-import-repository.js';
+import { confirmAction } from './services/confirmation-service.js';
 
 const normalize=v=>String(v??'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim().toLowerCase().replace(/\s+/g,' ');
 const number=v=>{if(v==null||v==='')return 0;const n=Number(String(v).replace(/[^0-9,.-]/g,'').replace(',','.'));return Number.isFinite(n)?n:0;};
@@ -26,74 +29,130 @@ async function audit(action,newData){try{await supabase.from('audit_logs').inser
 
 function headerMap(row){const map={};(row||[]).forEach((h,i)=>{const k=normalize(h);if(k)map[k]=i;});return map;}
 function pick(row,map,names,fallback){for(const name of names){const i=map[normalize(name)];if(i!==undefined&&row[i]!==undefined)return row[i];}return fallback;}
+function optionalNumber(value, { integer = false, minimum = null } = {}) {
+ if(value == null || String(value).trim() === '') return undefined;
+ const cleaned=String(value).replace(/[^0-9,.-]/g,'').replace(',','.');
+ const parsed=Number(cleaned);
+ if(!Number.isFinite(parsed)) return Number.NaN;
+ const normalized=integer?Math.round(parsed):parsed;
+ if(minimum!==null && normalized<minimum) return Number.NaN;
+ return normalized;
+}
+function optionalBoolean(value){
+ if(value==null||String(value).trim()==='')return undefined;
+ const normalized=normalize(value);
+ if(['si','sí','true','1','visible','activo'].includes(normalized))return true;
+ if(['no','false','0','oculto','inactivo'].includes(normalized))return false;
+ return undefined;
+}
 function parseInventoryWorkbook(wb){
  const prepared=[];
- for(const sheetName of ['Beauty Care','Style']){
+ for(const sheetName of ['Beauty Care','Style','Otros']){
   if(!wb.SheetNames.includes(sheetName))continue;
-  const rows=rowsFromSheet(wb,sheetName);const headerIndex=rows.findIndex(row=>normalize(row?.[0])==='sku');if(headerIndex<0)continue;
+  const rows=rowsFromSheet(wb,sheetName);const headerIndex=rows.findIndex(row=>Object.values(headerMap(row)).length&&headerMap(row)[normalize('SKU')]!==undefined);if(headerIndex<0)continue;
   const map=headerMap(rows[headerIndex]);
-  for(const row of rows.slice(headerIndex+1)){
+  for(let offset=headerIndex+1;offset<rows.length;offset++){
+   const row=rows[offset];
    const sku=String(pick(row,map,['SKU'],'')||'').trim();
-   const name=String(pick(row,map,['Producto'],'')||'').trim();
-   if(!sku||!name||normalize(sku)==='totales')continue;
-   prepared.push({sku,business_line:sheetName,category:pick(row,map,['Categoría / tipo','Categoria / tipo'],null),subcategory:pick(row,map,['Subcategoría','Subcategoria'],null),name,brand:pick(row,map,['Marca'],null),supplier_name:pick(row,map,['Proveedor'],null),current_cost:number(pick(row,map,['Costo real unitario (COP)'],0)),sale_price:number(pick(row,map,['Precio sugerido LIHEN (COP)'],0)),physical_stock:Math.max(0,Math.round(number(pick(row,map,['Stock actual'],0)))),minimum_stock:Math.max(0,Math.round(number(pick(row,map,['Stock mínimo','Stock minimo'],0)))),status_text:pick(row,map,['Estado inventario'],null)});
+   const internalId=String(pick(row,map,['ID interno','ID','Producto ID'],'')||'').trim();
+   const name=String(pick(row,map,['Producto','Nombre'],'')||'').trim();
+   if(!sku&&!internalId&&!name)continue;
+   if(normalize(sku)==='totales')continue;
+   const parsed={row_number:offset+1,internal_id:internalId||undefined,sku:sku||undefined,business_line:sheetName==='Otros'?pick(row,map,['Línea de negocio','Linea de negocio'],undefined):sheetName};
+   const textFields=[
+    ['category',['Categoría / tipo','Categoria / tipo','Categoría','Categoria']],['subcategory',['Subcategoría','Subcategoria']],['name',['Producto','Nombre']],['brand',['Marca']],['supplier_name',['Proveedor','Proveedor principal']],['description',['Descripción','Descripcion']],['status',['Estado producto','Estado']],['catalog_code',['Código catálogo','Codigo catalogo']]
+   ];
+   for(const [field,names] of textFields){const value=pick(row,map,names,undefined);if(value!==undefined&&String(value).trim()!=='')parsed[field]=String(value).trim();}
+   const numericFields=[
+    ['current_cost',['Costo real unitario (COP)','Costo unitario'],false],['sale_price',['Precio sugerido LIHEN (COP)','Precio de venta'],false],['physical_stock',['Stock actual','Stock físico','Stock fisico'],true],['minimum_stock',['Stock mínimo','Stock minimo'],true]
+   ];
+   for(const [field,names,integer] of numericFields){const raw=pick(row,map,names,undefined);const value=optionalNumber(raw,{integer,minimum:0});if(raw!==undefined&&String(raw).trim()!=='')parsed[field]=value;}
+   const visibleRaw=pick(row,map,['Visible en catálogo','Visible en catalogo','Visible web'],undefined);if(visibleRaw!==undefined&&String(visibleRaw).trim()!=='')parsed.visible_on_website=optionalBoolean(visibleRaw);
+   prepared.push(parsed);
   }
  }
  return prepared;
 }
 
-function previewHtml(prepared,existing,supplierNames){
- const duplicates=prepared.filter((r,i,a)=>a.findIndex(x=>normalize(x.sku)===normalize(r.sku))!==i);
- const create=prepared.filter(r=>!existing.has(normalize(r.sku))).length;const update=prepared.length-create;
- const pending=[...new Set(prepared.map(r=>r.supplier_name).filter(Boolean).filter(n=>!supplierNames.has(normalize(n))))];
- return {duplicates,html:`<div class="import-summary"><div><b>${prepared.length}</b><span>Filas válidas</span></div><div><b>${create}</b><span>Productos nuevos</span></div><div><b>${update}</b><span>Por actualizar</span></div><div><b>${prepared.reduce((a,r)=>a+r.physical_stock,0)}</b><span>Unidades físicas</span></div></div>${pending.length?`<div class="alert warning"><b>${pending.length} proveedores pendientes:</b> ${escapeHtml(pending.slice(0,8).join(', '))}${pending.length>8?'…':''}. Se podrán relacionar después.</div>`:''}<div class="preview-table"><table><thead><tr><th>SKU</th><th>Producto</th><th>Línea</th><th>Stock</th><th>Precio</th><th>Acción</th></tr></thead><tbody>${prepared.slice(0,15).map(r=>`<tr><td>${escapeHtml(r.sku)}</td><td>${escapeHtml(r.name)}</td><td>${escapeHtml(r.business_line)}</td><td>${r.physical_stock}</td><td>${r.sale_price}</td><td>${existing.has(normalize(r.sku))?'Actualizar':'Crear'}</td></tr>`).join('')}</tbody></table></div>${prepared.length>15?`<p class="privacy">Vista previa de 15 de ${prepared.length} productos.</p>`:''}`};
+function actionLabel(action){return ({create:'Crear',update:'Actualizar',unchanged:'Sin cambios',error:'Error'})[action]||action;}
+function formatPreviewValue(value){
+ if(value===undefined||value===null||value==='')return '—';
+ if(typeof value==='boolean')return value?'Sí':'No';
+ return String(value);
+}
+function previewHtml(plan){
+ const {summary}=plan;
+ const rows=plan.rows;
+ const errors=rows.filter(item=>item.errors.length);
+ const warnings=rows.filter(item=>item.warnings.length);
+ const detailRows=rows.slice(0,100).map(item=>{
+  const changes=getInventoryImportChangeLabels(item);
+  const validation=item.issues?.length
+   ? item.issues.map(problem=>`<div class="import-issue ${problem.severity}"><b>${escapeHtml(problem.field_label)}:</b> ${escapeHtml(problem.reason)}${problem.correction?`<small>Corrección: ${escapeHtml(problem.correction)}</small>`:''}</div>`).join('')
+   : changes.length
+     ? changes.map(change=>`<div class="import-change"><b>${escapeHtml(change.label)}:</b> ${escapeHtml(formatPreviewValue(change.before))} → ${escapeHtml(formatPreviewValue(change.after))}</div>`).join('')
+     : 'Sin cambios';
+  return `<tr class="import-row-${item.action}"><td>${item.row_number??''}</td><td>${escapeHtml(item.row.internal_id||'—')}<br><small>${escapeHtml(item.row.sku||'—')}</small></td><td>${escapeHtml(item.row.name||item.current?.name||'—')}</td><td><span class="status-pill ${item.action}">${escapeHtml(actionLabel(item.action))}</span></td><td>${validation}</td></tr>`;
+ }).join('');
+ const rejected=buildRejectedRows(plan);
+ const rejectedTable=rejected.length?`<section class="import-rejected"><div class="section-heading"><div><h4>Filas rechazadas</h4><p>Detalle de los errores que deben corregirse antes de importar.</p></div><button type="button" class="button ghost" id="downloadRejectedRows">Descargar errores</button></div><div class="preview-table"><table><thead><tr><th>Fila</th><th>SKU</th><th>Campo</th><th>Valor recibido</th><th>Motivo</th><th>Corrección esperada</th></tr></thead><tbody>${rejected.slice(0,100).map(row=>`<tr><td>${escapeHtml(row.Fila)}</td><td>${escapeHtml(row.SKU||'—')}</td><td>${escapeHtml(row['Campo afectado'])}</td><td>${escapeHtml(formatPreviewValue(row['Valor recibido']))}</td><td>${escapeHtml(row['Motivo del error'])}</td><td>${escapeHtml(row['Corrección esperada'])}</td></tr>`).join('')}</tbody></table></div></section>`:'';
+ return {rejected,html:`<div class="import-summary"><div><b>${summary.total}</b><span>Total de filas</span></div><div><b>${summary.create}</b><span>Productos nuevos</span></div><div><b>${summary.update}</b><span>Por actualizar</span></div><div><b>${summary.unchanged}</b><span>Sin cambios</span></div><div><b>${summary.warning}</b><span>Con advertencias</span></div><div><b>${summary.error}</b><span>Con errores</span></div></div><div class="import-change-summary"><span><b>${summary.stock_changes}</b> cambios de stock</span><span><b>${summary.cost_changes}</b> cambios de costo</span><span><b>${summary.price_changes}</b> cambios de precio</span><span><b>${summary.visibility_changes}</b> cambios de visibilidad</span></div>${warnings.length?`<div class="alert warning"><b>${warnings.length} filas con advertencias.</b> Se pueden importar, pero conviene revisarlas.</div>`:''}${errors.length?`<div class="alert danger"><b>No se puede importar todavía.</b> Corrige ${errors.length} filas con errores y vuelve a cargar el archivo.</div>`:''}<div class="preview-table"><table><thead><tr><th>Fila</th><th>ID / SKU</th><th>Producto</th><th>Acción</th><th>Cambios y validación</th></tr></thead><tbody>${detailRows}</tbody></table></div>${rows.length>100?`<p class="privacy">Vista previa de 100 de ${rows.length} filas. El resumen contempla todo el archivo.</p>`:''}${rejectedTable}`};
 }
 
-async function runInventoryImport(prepared,sourceName,button){
- await Promise.all([loadProducts(),loadSuppliers()]);
- const existing=new Map(state.products.filter(p=>p.sku).map(p=>[normalize(p.sku),p]));
- const suppliers=new Map(state.suppliers.map(s=>[normalize(s.business_name),s]));
- let created=0,updated=0,units=0,pendingSupplier=0;
- for(let index=0;index<prepared.length;index++){
-  const row=prepared[index];button.textContent=`Importando ${index+1} de ${prepared.length}…`;
-  const current=existing.get(normalize(row.sku));
-  const payload={sku:row.sku,name:row.name,business_line:row.business_line,category:row.category||null,brand:row.brand||null,current_cost:row.current_cost||null,sale_price:row.sale_price||0,minimum_stock:row.minimum_stock||0,status:current?.status||'activo',visible_on_website:current?.visible_on_website??false,description:current?.description||`${row.name}. Consulta disponibilidad por WhatsApp.`,updated_by:state.profile.id};
-  let productId;
-  if(current){const {data,error}=await supabase.from('products').update(payload).eq('id',current.id).select('id').maybeSingle();if(error)throw error;if(!data)throw new Error(`No se pudo actualizar ${row.sku}. Ejecuta la Migración 007.`);productId=current.id;updated++;}
-  else{const {data,error}=await supabase.from('products').insert({...payload,created_by:state.profile.id}).select('id').single();if(error)throw error;productId=data.id;created++;existing.set(normalize(row.sku),{id:productId,...payload});}
-  const {data:inv,error:iRead}=await supabase.from('inventory').select('id,physical_stock').eq('product_id',productId).maybeSingle();if(iRead)throw iRead;
-  if(inv){const {data,error}=await supabase.from('inventory').update({physical_stock:row.physical_stock,updated_by:state.profile.id}).eq('id',inv.id).select('id').maybeSingle();if(error)throw error;if(!data)throw new Error(`No se pudo actualizar el inventario de ${row.sku}. Ejecuta la Migración 007.`);}
-  else{const {error}=await supabase.from('inventory').insert({product_id:productId,physical_stock:row.physical_stock,updated_by:state.profile.id});if(error)throw error;}
-  units+=row.physical_stock;
-  const supplier=suppliers.get(normalize(row.supplier_name));
-  if(supplier){
-   const {data:rel,error:rError}=await supabase.from('supplier_products').select('id').eq('supplier_id',supplier.id).eq('product_id',productId).maybeSingle();if(rError)throw rError;
-   if(rel){const {error}=await supabase.from('supplier_products').update({last_cost:row.current_cost||null,preferred:true}).eq('id',rel.id);if(error)throw error;}
-   else{const {error}=await supabase.from('supplier_products').insert({supplier_id:supplier.id,product_id:productId,last_cost:row.current_cost||null,preferred:true});if(error)throw error;}
-  }else if(row.supplier_name)pendingSupplier++;
- }
- await supabase.from('import_batches').insert({import_type:'inventario',source_file:sourceName,status:'completado',total_rows:prepared.length,created_rows:created,updated_rows:updated,summary:{units,pending_supplier_links:pendingSupplier},created_by:state.profile.id});
- await audit('importar_inventario',{source_file:sourceName,created,updated,units,pending_supplier_links:pendingSupplier});
- return {created,updated,units,pendingSupplier};
+async function downloadRejectedRows(plan,sourceName='inventario'){
+ const rejected=buildRejectedRows(plan);
+ if(!rejected.length)throw new Error('No hay filas rechazadas para descargar.');
+ const XLSXLib=await ensureXlsx();
+ const workbook=XLSXLib.utils.book_new();
+ const sheet=XLSXLib.utils.json_to_sheet(rejected);
+ sheet['!cols']=[{wch:8},{wch:38},{wch:18},{wch:28},{wch:24},{wch:44},{wch:48},{wch:48}];
+ if(sheet['!ref'])sheet['!autofilter']={ref:sheet['!ref']};
+ XLSXLib.utils.book_append_sheet(workbook,sheet,'Errores');
+ const safeBase=String(sourceName||'inventario').replace(/\.[^.]+$/,'').replace(/[^a-z0-9_-]+/gi,'_');
+ XLSXLib.writeFile(workbook,`${safeBase}_FILAS_RECHAZADAS.xlsx`,{compression:true});
+}
+
+function bindRejectedDownload(plan,sourceName){
+ const button=$('#downloadRejectedRows');
+ if(!button)return;
+ button.addEventListener('click',async()=>{button.disabled=true;try{await downloadRejectedRows(plan,sourceName);toast('Archivo de errores descargado.');}catch(error){toast(error.message,'danger');}finally{button.disabled=false;}});
+}
+
+async function runInventoryImport(plan,sourceName,button){
+ if(!plan||plan.summary.error>0)throw new Error('Corrige las filas con errores antes de importar.');
+ const operationKey=createInventoryImportOperationKey(sourceName,plan);
+ const payload=buildInventoryImportBatchPayload(plan,{sourceName,operationKey});
+ button.textContent='Aplicando importación segura…';
+ const result=await importInventoryBatchAtomic(payload);
+ const summary=result?.summary||result||{};
+ return {
+  created:Number(summary.created_rows??summary.created??0),
+  updated:Number(summary.updated_rows??summary.updated??0),
+  unchanged:Number(summary.unchanged_rows??summary.unchanged??plan.summary.unchanged??0),
+  units:Number(summary.stock_units_after??summary.units??0),
+  pendingSupplier:Number(summary.pending_supplier_links??0),
+  batchId:result?.batch_id??summary.batch_id??null,
+  idempotent:Boolean(result?.idempotent??false)
+ };
 }
 
 function inventoryModal(title,description,loader){
- modal(title,`<div class="import-wizard"><div class="callout"><b>Cargue masivo con control por SKU</b><p>${description}</p></div>${loader}<div id="inventoryPreview"></div><div class="form-actions"><button class="button ghost" data-close-modal>Cancelar</button><button class="button primary" id="runInventoryImport" disabled>Importar inventario</button></div></div>`,{wide:true});
+ modal(title,`<div class="import-wizard"><div class="callout"><b>Actualización controlada por ID interno o SKU</b><p>${description}</p></div>${loader}<div id="inventoryPreview"></div><div class="form-actions"><button class="button ghost" data-close-modal>Cancelar</button><button class="button primary" id="runInventoryImport" disabled>Importar inventario</button></div></div>`,{wide:true});
 }
 
 export function importInventory(){
- inventoryModal('Importar inventario desde Excel','Selecciona cualquier versión futura del Excel. Los productos existentes se actualizan por SKU y los nuevos se crean.','<label class="file-drop">Seleccionar archivo Excel<input id="inventoryFile" type="file" accept=".xlsx,.xls"></label>');
- let prepared=[];let sourceName='';
- $('#inventoryFile').addEventListener('change',async event=>{try{const file=event.target.files[0];if(!file)return;sourceName=file.name;prepared=parseInventoryWorkbook(await workbookFromFile(file));await Promise.all([loadProducts(),loadSuppliers()]);const result=previewHtml(prepared,new Map(state.products.filter(p=>p.sku).map(p=>[normalize(p.sku),p])),new Set(state.suppliers.map(s=>normalize(s.business_name))));$('#inventoryPreview').innerHTML=result.html;$('#runInventoryImport').disabled=!prepared.length||result.duplicates.length>0;if(result.duplicates.length)toast('El archivo contiene SKU repetidos. Corrígelos antes de importar.','danger');}catch(error){toast(error.message,'danger');}});
- $('#runInventoryImport').addEventListener('click',async()=>{const button=$('#runInventoryImport');button.disabled=true;try{const r=await runInventoryImport(prepared,sourceName,button);closeModal();toast(`Importación completa: ${r.created} creados, ${r.updated} actualizados y ${r.units} unidades cargadas`);document.dispatchEvent(new CustomEvent('lihen:refresh'));}catch(error){button.disabled=false;button.textContent='Importar inventario';toast(error.message,'danger');}});
+ inventoryModal('Importar o actualizar inventario','El sistema identifica primero por ID interno válido y después por SKU. Las celdas vacías conservan el valor actual y los productos ausentes del archivo no se eliminan.','<label class="file-drop">Seleccionar archivo Excel<input id="inventoryFile" type="file" accept=".xlsx,.xls"></label>');
+ let plan=null;let sourceName='';
+ $('#inventoryFile').addEventListener('change',async event=>{try{const file=event.target.files[0];if(!file)return;sourceName=file.name;const prepared=parseInventoryWorkbook(await workbookFromFile(file));await Promise.all([loadProducts(),loadSuppliers()]);plan=buildInventoryImportPlan(prepared,state.products);const preview=previewHtml(plan);$('#inventoryPreview').innerHTML=preview.html;bindRejectedDownload(plan,sourceName);$('#runInventoryImport').disabled=!plan.summary.total||plan.summary.error>0;if(plan.summary.error)toast('Hay filas con errores. Descarga el detalle, corrígelas y vuelve a cargar el archivo.','danger');}catch(error){toast(error.message,'danger');}});
+ $('#runInventoryImport').addEventListener('click',async()=>{const button=$('#runInventoryImport');const accepted=await confirmAction({title:'Aplicar actualización masiva de inventario',message:'Los cambios válidos se guardarán en Supabase y los ajustes de stock quedarán registrados. Revisa el resumen antes de continuar.',confirmLabel:'Aplicar importación',tone:'warning',details:[{label:'Archivo',value:sourceName||'Sin nombre'},{label:'Productos nuevos',value:plan?.summary?.create??0},{label:'Productos por actualizar',value:plan?.summary?.update??0},{label:'Cambios de stock',value:plan?.summary?.stock_changes??plan?.summary?.stockChanges??0},{label:'Filas sin cambios',value:plan?.summary?.unchanged??0}]});if(!accepted)return;button.disabled=true;try{const r=await runInventoryImport(plan,sourceName,button);closeModal();toast(`Importación completa: ${r.created} creados, ${r.updated} actualizados y ${r.unchanged} sin cambios`);document.dispatchEvent(new CustomEvent('lihen:refresh'));}catch(error){button.disabled=false;button.textContent='Importar inventario';toast(error.message,'danger');}});
 }
 
 export async function importBundledInventory(){
- inventoryModal('Cargar inventario inicial de LIHEN','Este cargue viene incluido en el sistema y contiene todos los productos de Inventario_LIHEN_Corregido_Final.xlsx. Es seguro repetirlo: actualiza por SKU y no duplica.','<div class="alert success">Archivo integrado: <b>Inventario_LIHEN_Corregido_Final.xlsx</b></div>');
+ inventoryModal('Cargar inventario inicial de LIHEN','Este cargue viene incluido en el sistema. Los productos se identifican por SKU y nunca se eliminan por no aparecer en el archivo.','<div class="alert success">Archivo integrado: <b>Inventario_LIHEN_Corregido_Final.xlsx</b></div>');
  try{
-  const response=await fetch('data/inventario_inicial.json',{cache:'no-store'});if(!response.ok)throw new Error('No se pudo leer el inventario integrado.');const prepared=await response.json();
-  await Promise.all([loadProducts(),loadSuppliers()]);const result=previewHtml(prepared,new Map(state.products.filter(p=>p.sku).map(p=>[normalize(p.sku),p])),new Set(state.suppliers.map(s=>normalize(s.business_name))));$('#inventoryPreview').innerHTML=result.html;const button=$('#runInventoryImport');button.disabled=!prepared.length;
-  button.addEventListener('click',async()=>{button.disabled=true;try{const r=await runInventoryImport(prepared,'Inventario_LIHEN_Corregido_Final.xlsx (integrado)',button);closeModal();toast(`Inventario inicial cargado: ${r.created} creados, ${r.updated} actualizados y ${r.units} unidades físicas`);document.dispatchEvent(new CustomEvent('lihen:refresh'));}catch(error){button.disabled=false;button.textContent='Importar inventario';toast(error.message,'danger');}});
+  const response=await fetch('data/inventario_inicial.json',{cache:'no-store'});if(!response.ok)throw new Error('No se pudo leer el inventario integrado.');const prepared=(await response.json()).map((row,index)=>({...row,row_number:index+2}));
+  await Promise.all([loadProducts(),loadSuppliers()]);const plan=buildInventoryImportPlan(prepared,state.products);const preview=previewHtml(plan);$('#inventoryPreview').innerHTML=preview.html;bindRejectedDownload(plan,'Inventario_LIHEN_Corregido_Final.xlsx');const button=$('#runInventoryImport');button.disabled=!plan.summary.total||plan.summary.error>0;
+  button.addEventListener('click',async()=>{const accepted=await confirmAction({title:'Cargar inventario inicial incluido',message:'Esta acción aplicará el lote integrado y puede crear productos o modificar existencias. Los productos ausentes no se eliminarán.',confirmLabel:'Cargar inventario',tone:'warning',details:[{label:'Productos nuevos',value:plan?.summary?.create??0},{label:'Productos por actualizar',value:plan?.summary?.update??0},{label:'Filas sin cambios',value:plan?.summary?.unchanged??0}]});if(!accepted)return;button.disabled=true;try{const r=await runInventoryImport(plan,'Inventario_LIHEN_Corregido_Final.xlsx (integrado)',button);closeModal();toast(`Inventario inicial: ${r.created} creados, ${r.updated} actualizados y ${r.unchanged} sin cambios`);document.dispatchEvent(new CustomEvent('lihen:refresh'));}catch(error){button.disabled=false;button.textContent='Importar inventario';toast(error.message,'danger');}});
  }catch(error){$('#inventoryPreview').innerHTML=`<div class="alert danger">${escapeHtml(error.message)}</div>`;}
 }
 
@@ -102,7 +161,7 @@ function genericImport(kind){
  modal(cfg.title,`<div class="import-wizard"><div class="callout"><b>Excel o CSV</b><p>La primera fila debe contener los encabezados. Se mostrará una vista previa antes de guardar.</p></div><label class="file-drop">Seleccionar archivo<input id="genericFile" type="file" accept=".xlsx,.xls,.csv"></label><div id="genericPreview"></div><div class="form-actions"><button class="button ghost" data-close-modal>Cancelar</button><button class="button primary" id="runGenericImport" disabled>Importar</button></div></div>`,{wide:true});
  let data=[];
  $('#genericFile').addEventListener('change',async event=>{try{const file=event.target.files[0];if(!file)return;const wb=await workbookFromFile(file);const rows=rowsFromSheet(wb,wb.SheetNames[0]);const headers=(rows[0]||[]).map(h=>cfg.fields[normalize(h)]||null);data=rows.slice(1).filter(r=>r.some(Boolean)).map(row=>Object.fromEntries(headers.map((h,i)=>[h,row[i]]).filter(([h])=>h))).filter(r=>r[cfg.key]);$('#genericPreview').innerHTML=`<div class="alert success">Se detectaron <b>${data.length}</b> registros válidos.</div><div class="preview-table"><table><thead><tr>${Object.keys(data[0]||{}).map(h=>`<th>${escapeHtml(h)}</th>`).join('')}</tr></thead><tbody>${data.slice(0,10).map(r=>`<tr>${Object.keys(data[0]||{}).map(h=>`<td>${escapeHtml(r[h]??'')}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;$('#runGenericImport').disabled=!data.length;}catch(error){toast(error.message,'danger');}});
- $('#runGenericImport').addEventListener('click',async()=>{const button=$('#runGenericImport');button.disabled=true;button.textContent='Importando…';try{await cfg.load();const existing=kind==='suppliers'?new Map(state.suppliers.map(x=>[normalize(x.business_name),x])):new Map(state.customers.map(x=>[normalize(x.whatsapp),x]));let created=0,updated=0;for(const row of data){const key=normalize(row[cfg.key]);const current=existing.get(key);const payload={...row};if('average_delivery_days'in payload)payload.average_delivery_days=number(payload.average_delivery_days)||null;if(current){const {data:changed,error}=await supabase.from(cfg.table).update(payload).eq('id',current.id).select('id').maybeSingle();if(error)throw error;if(!changed)throw new Error('Supabase bloqueó la actualización. Ejecuta la Migración 007.');updated++;}else{const {data:createdRow,error}=await supabase.from(cfg.table).insert({...payload,created_by:state.profile.id}).select('id').single();if(error)throw error;existing.set(key,{id:createdRow.id,...payload});created++;}}await audit(`importar_${kind}`,{created,updated});closeModal();toast(`${created} creados y ${updated} actualizados`);document.dispatchEvent(new CustomEvent('lihen:refresh'));}catch(error){button.disabled=false;button.textContent='Importar';toast(error.message,'danger');}});
+ $('#runGenericImport').addEventListener('click',async()=>{const accepted=await confirmAction({title:`Confirmar ${cfg.title.toLowerCase()}`,message:'Se crearán registros nuevos y se actualizarán coincidencias existentes. Revisa la cantidad antes de continuar.',confirmLabel:'Confirmar importación',tone:'warning',details:[{label:'Tipo',value:kind==='suppliers'?'Proveedores':'Clientes'},{label:'Registros detectados',value:data.length}]});if(!accepted)return;const button=$('#runGenericImport');button.disabled=true;button.textContent='Importando…';try{await cfg.load();const existing=kind==='suppliers'?new Map(state.suppliers.map(x=>[normalize(x.business_name),x])):new Map(state.customers.map(x=>[normalize(x.whatsapp),x]));let created=0,updated=0;for(const row of data){const key=normalize(row[cfg.key]);const current=existing.get(key);const payload={...row};if('average_delivery_days'in payload)payload.average_delivery_days=number(payload.average_delivery_days)||null;if(current){const {data:changed,error}=await supabase.from(cfg.table).update(payload).eq('id',current.id).select('id').maybeSingle();if(error)throw error;if(!changed)throw new Error('Supabase bloqueó la actualización. Ejecuta la Migración 007.');updated++;}else{const {data:createdRow,error}=await supabase.from(cfg.table).insert({...payload,created_by:state.profile.id}).select('id').single();if(error)throw error;existing.set(key,{id:createdRow.id,...payload});created++;}}await audit(`importar_${kind}`,{created,updated});closeModal();toast(`${created} creados y ${updated} actualizados`);document.dispatchEvent(new CustomEvent('lihen:refresh'));}catch(error){button.disabled=false;button.textContent='Importar';toast(error.message,'danger');}});
 }
 export const importSuppliers=()=>genericImport('suppliers');
 export const importCustomers=()=>genericImport('customers');

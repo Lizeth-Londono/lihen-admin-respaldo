@@ -27,6 +27,9 @@ import {
   importCustomers
 } from './imports.js';
 import { newQuickSale, quickSaleReceipt } from './sales.js';
+import { exportCurrentInventory } from './inventory-export.js';
+import { newSupplierPurchase, viewSupplierPurchases } from './supplier-purchases.js';
+import { newFinancialMovement, configureAccountBalance, transferBetweenAccounts, reverseMovement } from './financial-accounts.js';
 import { registerCommand, executeCommand } from './core/command-bus.js';
 import { subscribe } from './core/event-bus.js';
 
@@ -46,6 +49,10 @@ const app = $('#app');
   ['import-suppliers', importSuppliers],
   ['import-customers', importCustomers],
   ['inventory-adjustment', inventoryAdjustment],
+  ['export-inventory', exportCurrentInventory],
+  ['new-financial-movement', newFinancialMovement],
+  ['transfer-financial-funds', transferBetweenAccounts],
+  ['retry-route', refresh],
   ['generate-receipt', () => toast('Abre un pedido para generar su comprobante.', 'warning')]
 ].forEach(([name, handler]) => registerCommand(name, handler));
 
@@ -160,15 +167,18 @@ function showPasswordReset() {
 }
 
 async function renderApp() {
-  app.innerHTML = shell('<div id="viewRoot"></div>');
+  app.innerHTML = shell('<div id="viewRoot" aria-live="polite"></div>');
   await refresh();
+  requestAnimationFrame(() => $('#mainContent')?.focus({ preventScroll: true }));
 }
 
 async function refresh() {
   const root = $('#viewRoot');
   if (!root) return;
 
+  root.setAttribute('aria-busy', 'true');
   root.innerHTML = await renderRoute();
+  root.removeAttribute('aria-busy');
   bindViewFilters();
 }
 
@@ -190,7 +200,7 @@ function toggleMobileMenu() {
 async function navigate(route) {
   state.route = route;
   setMobileMenu(false);
-  app.innerHTML = shell('<div id="viewRoot"></div>');
+  app.innerHTML = shell('<div id="viewRoot" aria-live="polite"></div>');
   await refresh();
 }
 
@@ -264,6 +274,30 @@ async function handleApplicationClick(event) {
   const supplierTarget = event.target.closest('[data-edit-supplier]');
   if (supplierTarget) {
     editSupplier(supplierTarget.dataset.editSupplier);
+    return;
+  }
+
+  const newPurchaseTarget = event.target.closest('[data-new-supplier-purchase]');
+  if (newPurchaseTarget) {
+    await newSupplierPurchase(newPurchaseTarget.dataset.newSupplierPurchase);
+    return;
+  }
+
+  const purchaseHistoryTarget = event.target.closest('[data-view-supplier-purchases]');
+  if (purchaseHistoryTarget) {
+    await viewSupplierPurchases(purchaseHistoryTarget.dataset.viewSupplierPurchases);
+    return;
+  }
+
+  const reverseMovementTarget = event.target.closest('[data-reverse-financial-movement]');
+  if (reverseMovementTarget) {
+    await reverseMovement(reverseMovementTarget.dataset.reverseFinancialMovement);
+    return;
+  }
+
+  const initialBalanceTarget = event.target.closest('[data-configure-account]');
+  if (initialBalanceTarget) {
+    await configureAccountBalance(initialBalanceTarget.dataset.configureAccount);
     return;
   }
 

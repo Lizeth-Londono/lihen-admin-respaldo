@@ -8,6 +8,7 @@ export const NAVIGATION_ITEMS = Object.freeze([
   Object.freeze({ id: 'receipts', icon: '▧', label: 'Comprobantes' }),
   Object.freeze({ id: 'movements', icon: '↺', label: 'Movimientos' }),
   Object.freeze({ id: 'reports', icon: '↗', label: 'Reportes' }),
+  Object.freeze({ id: 'cash', icon: '$', label: 'Caja y cuentas' }),
   Object.freeze({ id: 'settings', icon: '⚙', label: 'Configuración' })
 ]);
 

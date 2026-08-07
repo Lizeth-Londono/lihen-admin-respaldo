@@ -7,6 +7,8 @@ import { listCustomers } from './repositories/customer-repository.js';
 import { listSuppliers } from './repositories/supplier-repository.js';
 import { listMovements } from './repositories/inventory-repository.js';
 import { fetchReportSources } from './repositories/report-repository.js';
+import { listSupplierPurchases } from './repositories/supplier-purchase-repository.js';
+import { listFinancialAccounts, listFinancialMovements } from './repositories/financial-account-repository.js';
 import { buildDashboard } from './services/dashboard-service.js';
 import { buildReports } from './services/report-service.js';
 import { publish } from './core/event-bus.js';
@@ -24,7 +26,10 @@ const internalState = {
   customers: [],
   suppliers: [],
   movements: [],
-  reports: null
+  reports: null,
+  supplierPurchases: [],
+  financialAccounts: [],
+  financialMovements: []
 };
 
 export const state = internalState;
@@ -120,3 +125,6 @@ export async function loadReports() {
   updateState({ reports });
   return reports;
 }
+
+export async function loadSupplierPurchases(supplierId = null) { const supplierPurchases = await listSupplierPurchases(supplierId); updateState({ supplierPurchases }); return supplierPurchases; }
+export async function loadFinancialAccounts() { const [financialAccounts, financialMovements] = await Promise.all([listFinancialAccounts(), listFinancialMovements()]); updateState({ financialAccounts, financialMovements }); return { financialAccounts, financialMovements }; }

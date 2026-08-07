@@ -1,4 +1,4 @@
-import { state, loadProducts, loadCustomers } from './store.js';
+import { state, loadProducts, loadCustomers, loadFinancialAccounts } from './store.js';
 import { $, $$, escapeHtml, money, statusLabel, whatsappUrl } from './utils.js';
 import { ORDER_PAYMENT_LABELS, ORDER_STATUSES } from './constants.js';
 import { calculateOrderTotals } from './order-calculations.js';
@@ -8,6 +8,7 @@ import { getOrderById, createOrderAtomic, updateOrderAtomic, listSavedOrderItems
 import { canEditOrder } from './services/order-state-service.js';
 import { orderItemKey as itemKey, normalizeOrderItems as normalizedPayload, compareOrderItems } from './services/order-payload-service.js';
 import { modal, closeModal, toast, badge, totals } from './ui.js';
+import { confirmAction } from './services/confirmation-service.js';
 import { openReceipt } from './receipts.js';
 
 function publishOrderDebug(entry){
@@ -368,6 +369,7 @@ function directCloseMarkup(order){
     <div class="callout"><b>Registrar pago y entrega directamente</b><p>Úsalo cuando la clienta ya pagó y recibió el pedido, aunque no se hayan enviado el resumen o la confirmación por WhatsApp.</p></div>
     <div class="form-grid">
       <label>Método de pago<select name="payment_method" required><option value="">Selecciona el medio de pago</option>${paymentOptions}</select></label>
+      <label>Cuenta que recibió el dinero<select name="financial_account_id" required><option value="">Selecciona la cuenta</option>${state.financialAccounts.filter(a=>a.active!==false&&a.initial_balance_configured).map(a=>`<option value="${a.id}" data-code="${escapeHtml(a.code||'')}">${escapeHtml(a.name)} · ${money(a.current_balance)}</option>`).join('')}</select></label>
       <label>Referencia del pago (opcional)<input name="reference_number" placeholder="Ej. Nequi MI1988910"></label>
       <label class="full">Motivo para omitir resumen y confirmación<textarea name="reason" rows="4" minlength="10" required placeholder="Ej. La clienta pagó directamente por Nequi y recibió el pedido en el local."></textarea></label>
       <label class="full">Observación interna adicional<textarea name="notes" rows="2" placeholder="Información adicional para el historial"></textarea></label>
@@ -377,20 +379,33 @@ function directCloseMarkup(order){
   </form>`;
 }
 
-function openDirectCloseOrder(order){
+async function openDirectCloseOrder(order){
+  await loadFinancialAccounts();
   modal(`Cerrar ${order.order_number}`,directCloseMarkup(order),{wide:true});
   const form=$('#directCloseOrderForm');
+  const methodSelect=form.elements.payment_method;
+  const accountSelect=form.elements.financial_account_id;
+  const suggestAccount=()=>{
+    const preferred=methodSelect.value==='nequi'?'nequi':methodSelect.value==='efectivo'?'efectivo':null;
+    if(!preferred)return;
+    const option=[...accountSelect.options].find(item=>item.dataset.code===preferred);
+    if(option)accountSelect.value=option.value;
+  };
+  methodSelect.addEventListener('change',suggestAccount);suggestAccount();
   form.addEventListener('submit',async event=>{
     event.preventDefault();
     const fields=Object.fromEntries(new FormData(form));
     const reason=String(fields.reason||'').trim();
     if(reason.length<10)return toast('Escribe un motivo claro de al menos 10 caracteres.','warning');
+    const accepted=await confirmAction({title:`Registrar pago y entrega de ${order.order_number}`,message:'El pedido se marcará como pagado y entregado. Esta acción afecta inventario, pagos y reportes.',confirmLabel:'Registrar pago y entrega',tone:'warning',details:[{label:'Pedido',value:order.order_number||'—'},{label:'Total',value:money(order.total||0)},{label:'Método de pago',value:ORDER_PAYMENT_LABELS[fields.payment_method]||fields.payment_method||'—'},{label:'Cuenta',value:accountSelect.selectedOptions[0]?.textContent||'—'},{label:'Motivo',value:reason}]});
+    if(!accepted)return;
     const button=form.querySelector('button[type="submit"]');
     button.disabled=true;button.textContent='Registrando…';
     try{
       const result=await closeOrderDirectAtomic({
         p_order_id:order.id,
         p_payment_method:fields.payment_method,
+        p_financial_account_id:fields.financial_account_id,
         p_reason:reason,
         p_reference_number:String(fields.reference_number||'').trim()||null,
         p_notes:String(fields.notes||'').trim()||null
