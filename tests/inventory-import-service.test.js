@@ -41,8 +41,8 @@ test('un producto ausente del archivo no se marca para eliminar', () => {
 
 test('detecta SKU repetidos dentro del archivo', () => {
   const plan = buildInventoryImportPlan([
-    { row_number: 2, sku: 'BC-100', name: 'Nuevo 1' },
-    { row_number: 3, sku: 'bc-100', name: 'Nuevo 2' }
+    { row_number: 2, sku: 'BC-100', name: 'Nuevo 1', business_line: 'Beauty Care' },
+    { row_number: 3, sku: 'bc-100', name: 'Nuevo 2', business_line: 'Beauty Care' }
   ], products);
   assert.equal(plan.summary.error, 1);
 });

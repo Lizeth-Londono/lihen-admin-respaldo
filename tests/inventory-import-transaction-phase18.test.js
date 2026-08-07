@@ -20,10 +20,8 @@ test('bloquea planes con errores',()=>{
  assert.throws(()=>buildInventoryImportBatchPayload({...plan,summary:{...plan.summary,error:1}}),/errores/i);
 });
 
-test('genera claves de operación distintas por ejecución y estables con tiempo fijo',()=>{
- const first=createInventoryImportOperationKey('a.xlsx',plan,1000);
- const second=createInventoryImportOperationKey('a.xlsx',plan,1000);
- const third=createInventoryImportOperationKey('a.xlsx',plan,1001);
+test('genera una clave estable para el mismo archivo y contenido',()=>{
+ const first=createInventoryImportOperationKey('a.xlsx',plan);
+ const second=createInventoryImportOperationKey('a.xlsx',plan);
  assert.equal(first,second);
- assert.notEqual(first,third);
 });

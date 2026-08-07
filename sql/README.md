@@ -55,3 +55,11 @@ select public.validate_lihen_schema_coherence();
 ```
 
 Consulta `docs/GUIA_INSTALACION_MIGRACION_CONSOLIDADA.md` antes de aplicarlo en producción.
+
+## Migración 032 — plantilla de inventario 2026-08-07
+
+Si Supabase ya tiene instaladas las migraciones hasta la 031, ejecute únicamente:
+
+`032_compatibilidad_plantilla_inventario_2026_08_07.sql`
+
+Esta migración no carga productos ni modifica stock por sí sola. Refuerza la RPC de importación, conserva historial de costos importados y evita reemplazar automáticamente el proveedor preferido.

@@ -21,13 +21,20 @@ function currentValue(product, field) {
       ? Number(currentInventory(product).physical_stock ?? 0)
       : Number(product.minimum_stock ?? 0);
   }
+  if (field === 'supplier_name') {
+    const links = Array.isArray(product?.supplier_products) ? product.supplier_products : [];
+    return links.find(link => link?.preferred)?.supplier?.business_name
+      || links[0]?.supplier?.business_name
+      || null;
+  }
   return product?.[field] ?? null;
 }
 
-function comparable(value) {
+function comparable(value, field = '') {
   if (value === undefined) return '__UNDEFINED__';
   if (value === null) return null;
   if (typeof value === 'number' || typeof value === 'boolean') return value;
+  if (['status','business_line'].includes(field)) return normalize(value);
   return String(value).trim();
 }
 
@@ -37,7 +44,7 @@ const FIELD_LABELS = Object.freeze({
   subcategory: 'Subcategoría', name: 'Producto', brand: 'Marca', supplier_name: 'Proveedor',
   description: 'Descripción', current_cost: 'Costo real unitario', sale_price: 'Precio de venta',
   physical_stock: 'Stock actual', minimum_stock: 'Stock mínimo', visible_on_website: 'Visible en catálogo',
-  status: 'Estado producto', catalog_code: 'Código catálogo'
+  status: 'Estado producto', catalog_code: 'Código catálogo', reported_reserved_stock: 'Stock reservado', reported_available_stock: 'Stock disponible', reported_pending_stock: 'Stock pendiente'
 });
 
 function issue(field, value, reason, correction, severity = 'error') {
@@ -73,9 +80,10 @@ function validateRowValues(row, errors, warnings, issues) {
   }
 }
 
-export function buildInventoryImportPlan(rows, products) {
+export function buildInventoryImportPlan(rows, products, suppliers = []) {
   const byId = new Map((products || []).map(product => [String(product.id), product]));
   const bySku = new Map((products || []).filter(product => product.sku).map(product => [normalize(product.sku), product]));
+  const supplierByName = new Map((suppliers || []).filter(item => item?.active !== false).map(item => [normalize(item.business_name), item]));
   const seenIds = new Map();
   const seenSkus = new Map();
   const result = [];
@@ -108,6 +116,41 @@ export function buildInventoryImportPlan(rows, products) {
     }
 
     const current = productById || productBySku || null;
+
+    if (!current && !row.business_line) {
+      addIssue(errors, issues, issue('business_line', row.business_line, 'Un producto nuevo debe indicar su línea de negocio.', 'Usa Beauty Care o Style.'));
+    }
+
+    if (current && Object.prototype.hasOwnProperty.call(row, 'physical_stock')) {
+      const reserved = Number(currentInventory(current).reserved_stock ?? 0);
+      if (Number.isFinite(row.physical_stock) && row.physical_stock < reserved) {
+        addIssue(errors, issues, issue('physical_stock', row.physical_stock, `No puede quedar por debajo del stock reservado (${reserved}).`, `Usa un stock igual o mayor que ${reserved}.`));
+      }
+    }
+
+    if (current) {
+      const inventory = currentInventory(current);
+      const protectedChecks = [
+        ['reported_reserved_stock','Stock reservado',Number(inventory.reserved_stock ?? 0)],
+        ['reported_available_stock','Stock disponible',Number(inventory.available_stock ?? Math.max(0, Number(inventory.physical_stock ?? 0) - Number(inventory.reserved_stock ?? 0)))],
+        ['reported_pending_stock','Stock pendiente',Number(inventory.pending_stock ?? 0)]
+      ];
+      for (const [field, label, actual] of protectedChecks) {
+        if (!Object.prototype.hasOwnProperty.call(row, field) || !Number.isFinite(row[field]) || row[field] === actual) continue;
+        const item = issue(field, row[field], `${label} es informativo y no se sobrescribirá. El valor real en Supabase es ${actual}.`, 'No edites esta columna; el sistema la calcula automáticamente.', 'warning');
+        warnings.push(`${label}: ${item.reason}`); issues.push(item);
+      }
+    }
+
+    if (row.supplier_name) {
+      const matchedSupplier = supplierByName.get(normalize(row.supplier_name));
+      if (!matchedSupplier && suppliers.length) {
+        const item = issue('supplier_name', row.supplier_name, 'No existe un proveedor activo con ese nombre exacto.', 'Corrige el nombre para que coincida con un proveedor registrado. El producto se importará sin cambiar su relación de proveedor.', 'warning');
+        warnings.push(`${item.field_label}: ${item.reason}`); issues.push(item);
+      } else if (matchedSupplier) {
+        row.supplier_id = matchedSupplier.id;
+      }
+    }
     if (internalId && !productById && productBySku) {
       const item = issue('internal_id', internalId, 'El ID interno no existe; se identificó el producto mediante el SKU.', 'Puedes conservarlo vacío o reemplazarlo por el ID correcto.', 'warning');
       warnings.push(`${item.field_label}: ${item.reason}`); issues.push(item);
@@ -133,7 +176,7 @@ export function buildInventoryImportPlan(rows, products) {
     if (current && !errors.length) {
       for (const field of editableFields) {
         if (!Object.prototype.hasOwnProperty.call(row, field) || row[field] === undefined) continue;
-        if (comparable(row[field]) !== comparable(currentValue(current, field))) {
+        if (comparable(row[field], field) !== comparable(currentValue(current, field), field)) {
           changes[field] = { before: currentValue(current, field), after: row[field] };
         }
       }
@@ -267,19 +310,19 @@ export function buildInventoryImportBatchPayload(plan, { sourceName, operationKe
   };
 }
 
-export function createInventoryImportOperationKey(sourceName, plan, now = Date.now()) {
-  const signature = (plan?.rows || []).map(item => [
-    item.row_number,
-    item.row?.internal_id ?? '',
-    item.row?.sku ?? '',
-    item.action,
-    Object.keys(item.changes || {}).sort().join(',')
-  ].join(':')).join('|');
+export function createInventoryImportOperationKey(sourceName, plan) {
+  const signature = (plan?.rows || []).map(item => ({
+    row: item.row_number,
+    id: item.row?.internal_id ?? '',
+    sku: item.row?.sku ?? '',
+    action: item.action,
+    changes: Object.fromEntries(Object.entries(item.changes || {}).sort(([a],[b]) => a.localeCompare(b)))
+  }));
   let hash = 2166136261;
-  const text = `${sourceName || 'inventario'}|${signature}`;
+  const text = JSON.stringify({ source: sourceName || 'inventario', signature });
   for (let index = 0; index < text.length; index++) {
     hash ^= text.charCodeAt(index);
     hash = Math.imul(hash, 16777619);
   }
-  return `inventory-${now}-${(hash >>> 0).toString(16)}`;
+  return `inventory-${(hash >>> 0).toString(16)}`;
 }

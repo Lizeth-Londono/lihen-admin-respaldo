@@ -5,6 +5,7 @@ import { modal, closeModal, toast } from './ui.js';
 import { buildInventoryImportPlan, buildRejectedRows, getInventoryImportChangeLabels, buildInventoryImportBatchPayload, createInventoryImportOperationKey } from './services/inventory-import-service.js';
 import { importInventoryBatchAtomic } from './repositories/inventory-import-repository.js';
 import { confirmAction } from './services/confirmation-service.js';
+import { parseInventoryWorkbookData, INVENTORY_TEMPLATE_VERSION } from './services/inventory-workbook-service.js';
 
 const normalize=v=>String(v??'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim().toLowerCase().replace(/\s+/g,' ');
 const number=v=>{if(v==null||v==='')return 0;const n=Number(String(v).replace(/[^0-9,.-]/g,'').replace(',','.'));return Number.isFinite(n)?n:0;};
@@ -27,51 +28,9 @@ async function workbookFromFile(file){const XLSXLib=await ensureXlsx();const buf
 function rowsFromSheet(workbook,name){return XLSX.utils.sheet_to_json(workbook.Sheets[name],{header:1,defval:null,raw:true});}
 async function audit(action,newData){try{await supabase.from('audit_logs').insert({user_id:state.profile.id,action,entity_type:'importacion',new_data:newData});}catch(error){console.warn(error);}}
 
-function headerMap(row){const map={};(row||[]).forEach((h,i)=>{const k=normalize(h);if(k)map[k]=i;});return map;}
-function pick(row,map,names,fallback){for(const name of names){const i=map[normalize(name)];if(i!==undefined&&row[i]!==undefined)return row[i];}return fallback;}
-function optionalNumber(value, { integer = false, minimum = null } = {}) {
- if(value == null || String(value).trim() === '') return undefined;
- const cleaned=String(value).replace(/[^0-9,.-]/g,'').replace(',','.');
- const parsed=Number(cleaned);
- if(!Number.isFinite(parsed)) return Number.NaN;
- const normalized=integer?Math.round(parsed):parsed;
- if(minimum!==null && normalized<minimum) return Number.NaN;
- return normalized;
-}
-function optionalBoolean(value){
- if(value==null||String(value).trim()==='')return undefined;
- const normalized=normalize(value);
- if(['si','sí','true','1','visible','activo'].includes(normalized))return true;
- if(['no','false','0','oculto','inactivo'].includes(normalized))return false;
- return undefined;
-}
-function parseInventoryWorkbook(wb){
- const prepared=[];
- for(const sheetName of ['Beauty Care','Style','Otros']){
-  if(!wb.SheetNames.includes(sheetName))continue;
-  const rows=rowsFromSheet(wb,sheetName);const headerIndex=rows.findIndex(row=>Object.values(headerMap(row)).length&&headerMap(row)[normalize('SKU')]!==undefined);if(headerIndex<0)continue;
-  const map=headerMap(rows[headerIndex]);
-  for(let offset=headerIndex+1;offset<rows.length;offset++){
-   const row=rows[offset];
-   const sku=String(pick(row,map,['SKU'],'')||'').trim();
-   const internalId=String(pick(row,map,['ID interno','ID','Producto ID'],'')||'').trim();
-   const name=String(pick(row,map,['Producto','Nombre'],'')||'').trim();
-   if(!sku&&!internalId&&!name)continue;
-   if(normalize(sku)==='totales')continue;
-   const parsed={row_number:offset+1,internal_id:internalId||undefined,sku:sku||undefined,business_line:sheetName==='Otros'?pick(row,map,['Línea de negocio','Linea de negocio'],undefined):sheetName};
-   const textFields=[
-    ['category',['Categoría / tipo','Categoria / tipo','Categoría','Categoria']],['subcategory',['Subcategoría','Subcategoria']],['name',['Producto','Nombre']],['brand',['Marca']],['supplier_name',['Proveedor','Proveedor principal']],['description',['Descripción','Descripcion']],['status',['Estado producto','Estado']],['catalog_code',['Código catálogo','Codigo catalogo']]
-   ];
-   for(const [field,names] of textFields){const value=pick(row,map,names,undefined);if(value!==undefined&&String(value).trim()!=='')parsed[field]=String(value).trim();}
-   const numericFields=[
-    ['current_cost',['Costo real unitario (COP)','Costo unitario'],false],['sale_price',['Precio sugerido LIHEN (COP)','Precio de venta'],false],['physical_stock',['Stock actual','Stock físico','Stock fisico'],true],['minimum_stock',['Stock mínimo','Stock minimo'],true]
-   ];
-   for(const [field,names,integer] of numericFields){const raw=pick(row,map,names,undefined);const value=optionalNumber(raw,{integer,minimum:0});if(raw!==undefined&&String(raw).trim()!=='')parsed[field]=value;}
-   const visibleRaw=pick(row,map,['Visible en catálogo','Visible en catalogo','Visible web'],undefined);if(visibleRaw!==undefined&&String(visibleRaw).trim()!=='')parsed.visible_on_website=optionalBoolean(visibleRaw);
-   prepared.push(parsed);
-  }
- }
- return prepared;
+function parseInventoryWorkbook(workbook){
+ const parsed=parseInventoryWorkbookData(workbook,rowsFromSheet);
+ return parsed.rows;
 }
 
 function actionLabel(action){return ({create:'Crear',update:'Actualizar',unchanged:'Sin cambios',error:'Error'})[action]||action;}
@@ -141,9 +100,9 @@ function inventoryModal(title,description,loader){
 }
 
 export function importInventory(){
- inventoryModal('Importar o actualizar inventario','El sistema identifica primero por ID interno válido y después por SKU. Las celdas vacías conservan el valor actual y los productos ausentes del archivo no se eliminan.','<label class="file-drop">Seleccionar archivo Excel<input id="inventoryFile" type="file" accept=".xlsx,.xls"></label>');
+ inventoryModal('Importar o actualizar inventario',`El sistema reconoce la plantilla ${INVENTORY_TEMPLATE_VERSION}, identifica primero por ID interno válido y después por SKU. Las celdas vacías conservan el valor actual y los productos ausentes del archivo no se eliminan.`,`<label class="file-drop">Seleccionar archivo Excel<input id="inventoryFile" type="file" accept=".xlsx,.xls"></label>');
  let plan=null;let sourceName='';
- $('#inventoryFile').addEventListener('change',async event=>{try{const file=event.target.files[0];if(!file)return;sourceName=file.name;const prepared=parseInventoryWorkbook(await workbookFromFile(file));await Promise.all([loadProducts(),loadSuppliers()]);plan=buildInventoryImportPlan(prepared,state.products);const preview=previewHtml(plan);$('#inventoryPreview').innerHTML=preview.html;bindRejectedDownload(plan,sourceName);$('#runInventoryImport').disabled=!plan.summary.total||plan.summary.error>0;if(plan.summary.error)toast('Hay filas con errores. Descarga el detalle, corrígelas y vuelve a cargar el archivo.','danger');}catch(error){toast(error.message,'danger');}});
+ $('#inventoryFile').addEventListener('change',async event=>{try{const file=event.target.files[0];if(!file)return;sourceName=file.name;const prepared=parseInventoryWorkbook(await workbookFromFile(file));await Promise.all([loadProducts(),loadSuppliers()]);plan=buildInventoryImportPlan(prepared,state.products,state.suppliers);const preview=previewHtml(plan);$('#inventoryPreview').innerHTML=preview.html;bindRejectedDownload(plan,sourceName);$('#runInventoryImport').disabled=!plan.summary.total||plan.summary.error>0;if(plan.summary.error)toast('Hay filas con errores. Descarga el detalle, corrígelas y vuelve a cargar el archivo.','danger');}catch(error){toast(error.message,'danger');}});
  $('#runInventoryImport').addEventListener('click',async()=>{const button=$('#runInventoryImport');const accepted=await confirmAction({title:'Aplicar actualización masiva de inventario',message:'Los cambios válidos se guardarán en Supabase y los ajustes de stock quedarán registrados. Revisa el resumen antes de continuar.',confirmLabel:'Aplicar importación',tone:'warning',details:[{label:'Archivo',value:sourceName||'Sin nombre'},{label:'Productos nuevos',value:plan?.summary?.create??0},{label:'Productos por actualizar',value:plan?.summary?.update??0},{label:'Cambios de stock',value:plan?.summary?.stock_changes??plan?.summary?.stockChanges??0},{label:'Filas sin cambios',value:plan?.summary?.unchanged??0}]});if(!accepted)return;button.disabled=true;try{const r=await runInventoryImport(plan,sourceName,button);closeModal();toast(`Importación completa: ${r.created} creados, ${r.updated} actualizados y ${r.unchanged} sin cambios`);document.dispatchEvent(new CustomEvent('lihen:refresh'));}catch(error){button.disabled=false;button.textContent='Importar inventario';toast(error.message,'danger');}});
 }
 
@@ -151,7 +110,7 @@ export async function importBundledInventory(){
  inventoryModal('Cargar inventario inicial de LIHEN','Este cargue viene incluido en el sistema. Los productos se identifican por SKU y nunca se eliminan por no aparecer en el archivo.','<div class="alert success">Archivo integrado: <b>Inventario_LIHEN_Corregido_Final.xlsx</b></div>');
  try{
   const response=await fetch('data/inventario_inicial.json',{cache:'no-store'});if(!response.ok)throw new Error('No se pudo leer el inventario integrado.');const prepared=(await response.json()).map((row,index)=>({...row,row_number:index+2}));
-  await Promise.all([loadProducts(),loadSuppliers()]);const plan=buildInventoryImportPlan(prepared,state.products);const preview=previewHtml(plan);$('#inventoryPreview').innerHTML=preview.html;bindRejectedDownload(plan,'Inventario_LIHEN_Corregido_Final.xlsx');const button=$('#runInventoryImport');button.disabled=!plan.summary.total||plan.summary.error>0;
+  await Promise.all([loadProducts(),loadSuppliers()]);const plan=buildInventoryImportPlan(prepared,state.products,state.suppliers);const preview=previewHtml(plan);$('#inventoryPreview').innerHTML=preview.html;bindRejectedDownload(plan,'Inventario_LIHEN_Corregido_Final.xlsx');const button=$('#runInventoryImport');button.disabled=!plan.summary.total||plan.summary.error>0;
   button.addEventListener('click',async()=>{const accepted=await confirmAction({title:'Cargar inventario inicial incluido',message:'Esta acción aplicará el lote integrado y puede crear productos o modificar existencias. Los productos ausentes no se eliminarán.',confirmLabel:'Cargar inventario',tone:'warning',details:[{label:'Productos nuevos',value:plan?.summary?.create??0},{label:'Productos por actualizar',value:plan?.summary?.update??0},{label:'Filas sin cambios',value:plan?.summary?.unchanged??0}]});if(!accepted)return;button.disabled=true;try{const r=await runInventoryImport(plan,'Inventario_LIHEN_Corregido_Final.xlsx (integrado)',button);closeModal();toast(`Inventario inicial: ${r.created} creados, ${r.updated} actualizados y ${r.unchanged} sin cambios`);document.dispatchEvent(new CustomEvent('lihen:refresh'));}catch(error){button.disabled=false;button.textContent='Importar inventario';toast(error.message,'danger');}});
  }catch(error){$('#inventoryPreview').innerHTML=`<div class="alert danger">${escapeHtml(error.message)}</div>`;}
 }
