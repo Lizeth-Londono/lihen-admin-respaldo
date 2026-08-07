@@ -29,6 +29,7 @@ import {
 import { newQuickSale, quickSaleReceipt } from './sales.js';
 import { exportCurrentInventory } from './inventory-export.js';
 import { newSupplierPurchase, newHistoricalSupplierPurchase, viewSupplierPurchases } from './supplier-purchases.js';
+import { importSupplierPurchases, exportSupplierPurchaseConsolidated, downloadSupplierPurchaseTemplate } from './supplier-purchase-bulk.js';
 import { newFinancialMovement, configureAccountBalance, transferBetweenAccounts, reverseMovement } from './financial-accounts.js';
 import { registerCommand, executeCommand } from './core/command-bus.js';
 import { subscribe } from './core/event-bus.js';
@@ -50,6 +51,9 @@ const app = $('#app');
   ['import-customers', importCustomers],
   ['inventory-adjustment', inventoryAdjustment],
   ['export-inventory', exportCurrentInventory],
+  ['import-supplier-purchases', importSupplierPurchases],
+  ['export-supplier-purchases', exportSupplierPurchaseConsolidated],
+  ['download-supplier-purchase-template', downloadSupplierPurchaseTemplate],
   ['new-financial-movement', newFinancialMovement],
   ['transfer-financial-funds', transferBetweenAccounts],
   ['retry-route', refresh],
