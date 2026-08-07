@@ -73,3 +73,11 @@ Si al configurar el saldo inicial aparece el error `financial_movements.created_
 ```
 
 No repitas las migraciones anteriores.
+
+## Hotfix 038 — anulación de ventas antiguas sin movimiento financiero
+
+Si al intentar anular una venta aparece `La venta no tiene un movimiento financiero asociado`, ejecuta únicamente:
+
+`038_hotfix_anulacion_ventas_legacy.sql`
+
+El hotfix conserva las ventas, evita dobles devoluciones y permite anular registros históricos que nunca generaron movimiento financiero. No requiere borrar ventas ni repetir las migraciones anteriores.
