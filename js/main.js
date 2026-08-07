@@ -28,7 +28,7 @@ import {
 } from './imports.js';
 import { newQuickSale, quickSaleReceipt } from './sales.js';
 import { exportCurrentInventory } from './inventory-export.js';
-import { newSupplierPurchase, viewSupplierPurchases } from './supplier-purchases.js';
+import { newSupplierPurchase, newHistoricalSupplierPurchase, viewSupplierPurchases } from './supplier-purchases.js';
 import { newFinancialMovement, configureAccountBalance, transferBetweenAccounts, reverseMovement } from './financial-accounts.js';
 import { registerCommand, executeCommand } from './core/command-bus.js';
 import { subscribe } from './core/event-bus.js';
@@ -280,6 +280,12 @@ async function handleApplicationClick(event) {
   const newPurchaseTarget = event.target.closest('[data-new-supplier-purchase]');
   if (newPurchaseTarget) {
     await newSupplierPurchase(newPurchaseTarget.dataset.newSupplierPurchase);
+    return;
+  }
+
+  const historicalPurchaseTarget = event.target.closest('[data-new-historical-purchase]');
+  if (historicalPurchaseTarget) {
+    await newHistoricalSupplierPurchase(historicalPurchaseTarget.dataset.newHistoricalPurchase);
     return;
   }
 

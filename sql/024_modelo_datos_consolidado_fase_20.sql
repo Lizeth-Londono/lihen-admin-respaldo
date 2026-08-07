@@ -294,9 +294,7 @@ end $$;
 -- ------------------------------------------------------------
 -- 8. Vista técnica de relaciones principales
 -- ------------------------------------------------------------
-drop view if exists public.v_supplier_purchase_account_status;
-
-create view public.v_supplier_purchase_account_status
+create or replace view public.v_supplier_purchase_account_status
 with (security_invoker = true)
 as
 select

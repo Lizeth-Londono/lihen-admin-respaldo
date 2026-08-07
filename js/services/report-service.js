@@ -40,7 +40,7 @@ export function buildReports({
     .filter(movement => ['egreso', 'ajuste_negativo'].includes(movement.movement_type))
     .reduce((sum, movement) => sum + amount(movement.amount), 0);
 
-  const validPurchases = supplierPurchases.filter(purchase => !['cancelada', 'anulada'].includes(purchase.status));
+  const validPurchases = supplierPurchases.filter(purchase => !purchase.is_historical && !['cancelada', 'anulada'].includes(purchase.status));
   const purchasesTotal = validPurchases.reduce((sum, purchase) => sum + amount(purchase.total_amount), 0);
   const accountsPayable = validPurchases.reduce((sum, purchase) => sum + amount(purchase.balance_due), 0);
   const supplierPaid = supplierPayments.filter(payment => payment.status === 'activo').reduce((sum, payment) => sum + amount(payment.amount), 0);

@@ -4,7 +4,7 @@ import { modal, closeModal, toast, badge } from './ui.js';
 import { confirmAction, moneyDetail } from './services/confirmation-service.js';
 import { createOperationKey } from './services/operation-key-service.js';
 import { normalizePurchaseItems, calculatePurchaseTotals, summarizePurchase } from './services/supplier-purchase-service.js';
-import { createSupplierPurchase, confirmSupplierPurchase, receiveSupplierPurchase, registerSupplierPayment } from './repositories/supplier-purchase-repository.js';
+import { createSupplierPurchase, createHistoricalSupplierPurchase, confirmSupplierPurchase, receiveSupplierPurchase, registerSupplierPayment } from './repositories/supplier-purchase-repository.js';
 
 function dateInputValue(date = new Date()) {
   const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
@@ -52,11 +52,11 @@ function updateTotals(form) {
   return totals;
 }
 
-export async function newSupplierPurchase(supplierId) {
+export async function newSupplierPurchase(supplierId, { historical = false } = {}) {
   const supplier = state.suppliers.find((item) => item.id === supplierId);
   if (!supplier) return toast('Proveedor no encontrado.', 'danger');
   await loadProducts();
-  modal(`Nueva compra · ${supplier.business_name}`, `<form id="supplierPurchaseForm" class="form-grid purchase-form">
+  modal(`${historical ? 'Compra histórica' : 'Nueva compra'} · ${supplier.business_name}`, `<form id="supplierPurchaseForm" class="form-grid purchase-form">
     <label>Fecha de compra<input name="purchase_date" type="date" value="${dateInputValue()}" required></label>
     <label>Fecha esperada<input name="expected_date" type="date"></label>
     <label>Número de factura<input name="invoice_number" maxlength="100"></label>
@@ -65,6 +65,7 @@ export async function newSupplierPurchase(supplierId) {
     <label>Descuento<input name="discount_amount" type="number" min="0" step="1" value="0"></label>
     <label>Impuestos<input name="tax_amount" type="number" min="0" step="1" value="0"></label>
     <label>Flete / domicilio<input name="freight_amount" type="number" min="0" step="1" value="0"></label>
+    ${historical ? `<label>Valor pagado históricamente<input name="historical_paid_amount" type="number" min="0" step="1" value="0"></label><label>Medio de pago histórico<select name="historical_payment_method"><option value="">Sin registrar</option><option value="nequi">Nequi</option><option value="efectivo">Efectivo</option><option value="transferencia">Transferencia</option><option value="otro">Otro</option></select></label><label>Fecha del pago histórico<input name="historical_payment_date" type="date"></label><label>Referencia / origen<input name="source_reference" placeholder="Excel, imagen, factura..."></label><div class="callout full"><b>Registro histórico sin impacto</b><p>No aumentará el inventario actual ni descontará dinero de Nequi o efectivo.</p></div>` : ``}
     <div class="purchase-totals"><span>Subtotal <b data-purchase-subtotal>${money(0)}</b></span><span>Total <strong data-purchase-total>${money(0)}</strong></span></div>
     <label class="full">Observaciones<textarea name="notes" rows="3"></textarea></label>
     <div class="form-actions full"><button type="button" class="button ghost" data-close-modal>Cancelar</button><button class="button primary" type="submit">Guardar borrador</button></div>
@@ -92,13 +93,13 @@ export async function newSupplierPurchase(supplierId) {
       const items = normalizePurchaseItems(collectItems(form));
       const totals = calculatePurchaseTotals(items, { discountAmount: data.discount_amount, taxAmount: data.tax_amount, freightAmount: data.freight_amount });
       const accepted = await confirmAction({
-        title: 'Guardar compra en borrador',
-        message: 'La compra quedará registrada, pero todavía no modificará inventario ni dinero.',
-        confirmLabel: 'Guardar borrador',
+        title: historical ? 'Registrar compra histórica' : 'Guardar compra en borrador',
+        message: historical ? 'Se registrará solo para trazabilidad. El inventario y las cuentas actuales no cambiarán.' : 'La compra quedará registrada, pero todavía no modificará inventario ni dinero.',
+        confirmLabel: historical ? 'Registrar compra histórica' : 'Guardar borrador',
         details: [{ label: 'Proveedor', value: supplier.business_name }, { label: 'Productos', value: String(items.length) }, moneyDetail('Total', totals.total)]
       });
       if (!accepted) return;
-      await createSupplierPurchase({
+      const commonPayload = {
         supplierId,
         purchaseDate: data.purchase_date,
         expectedDate: data.expected_date,
@@ -108,11 +109,22 @@ export async function newSupplierPurchase(supplierId) {
         taxAmount: Number(data.tax_amount || 0),
         freightAmount: Number(data.freight_amount || 0),
         notes: data.notes,
-        items,
-        operationKey: createOperationKey('crear_compra_proveedor')
-      });
+        items
+      };
+      if (historical) {
+        await createHistoricalSupplierPurchase({
+          ...commonPayload,
+          historicalPaidAmount: Number(data.historical_paid_amount || 0),
+          historicalPaymentMethod: data.historical_payment_method,
+          historicalPaymentDate: data.historical_payment_date,
+          sourceReference: data.source_reference,
+          operationKey: createOperationKey('compra_historica_proveedor')
+        });
+      } else {
+        await createSupplierPurchase({ ...commonPayload, operationKey: createOperationKey('crear_compra_proveedor') });
+      }
       closeModal();
-      toast('Compra guardada como borrador.');
+      toast(historical ? 'Compra histórica registrada sin afectar inventario ni caja.' : 'Compra guardada como borrador.');
       document.dispatchEvent(new CustomEvent('lihen:refresh'));
     } catch (error) { toast(error.message, 'danger'); }
   });
@@ -121,6 +133,7 @@ export async function newSupplierPurchase(supplierId) {
 
 function purchaseActions(purchase) {
   const actions = [];
+  if (purchase.is_historical) return '<span class="privacy">Registro histórico · sin impacto actual</span>';
   if (purchase.status === 'borrador') actions.push(`<button class="button primary" data-confirm-purchase="${purchase.id}">Confirmar compra</button>`);
   if (!['borrador', 'cancelada'].includes(purchase.status) && purchase.reception_status !== 'completa') actions.push(`<button class="button secondary" data-receive-purchase="${purchase.id}">Recibir mercancía</button>`);
   if (!['borrador', 'cancelada'].includes(purchase.status) && Number(purchase.balance_due || 0) > 0) actions.push(`<button class="button secondary" data-pay-purchase="${purchase.id}">Registrar pago</button>`);
@@ -132,7 +145,7 @@ export async function viewSupplierPurchases(supplierId) {
   const purchases = await loadSupplierPurchases(supplierId);
   modal(`Compras · ${supplier?.business_name || 'Proveedor'}`, purchases.length ? `<div class="purchase-history">${purchases.map((purchase) => {
     const summary = summarizePurchase(purchase);
-    return `<article class="purchase-card" data-purchase-card="${purchase.id}"><header><div><p class="eyebrow">${escapeHtml(purchase.invoice_number || 'SIN FACTURA')}</p><h3>${dateTime(purchase.purchase_date || purchase.created_at)}</h3></div><div>${badge(purchase.status)} ${badge(purchase.payment_status || 'pendiente')}</div></header><div class="purchase-summary"><span>Total <b>${money(summary.total)}</b></span><span>Pagado <b>${money(summary.paid)}</b></span><span>Pendiente <b>${money(summary.pending)}</b></span></div><div class="purchase-products">${(purchase.items || []).map((item) => `<div><span>${escapeHtml(item.product?.name || 'Producto')}</span><b>${item.quantity_requested} × ${money(item.quoted_unit_cost)}</b></div>`).join('')}</div><footer>${purchaseActions(purchase)}</footer></article>`;
+    return `<article class="purchase-card" data-purchase-card="${purchase.id}"><header><div><p class="eyebrow">${escapeHtml(purchase.invoice_number || 'SIN FACTURA')}</p><h3>${dateTime(purchase.purchase_date || purchase.created_at)}</h3></div><div>${purchase.is_historical ? badge('histórica') : ''} ${badge(purchase.status)} ${badge(purchase.payment_status || 'pendiente')}</div></header><div class="purchase-summary"><span>Total <b>${money(summary.total)}</b></span><span>Pagado <b>${money(summary.paid)}</b></span><span>Pendiente <b>${money(summary.pending)}</b></span></div><div class="purchase-products">${(purchase.items || []).map((item) => `<div><span>${escapeHtml(item.product?.name || 'Producto')}</span><b>${item.quantity_requested} × ${money(item.quoted_unit_cost)}</b></div>`).join('')}</div><footer>${purchaseActions(purchase)}</footer></article>`;
   }).join('')}</div>` : `<div class="empty"><span>◇</span><h3>Sin compras</h3><p>Aún no se han registrado compras para este proveedor.</p><button class="button primary" data-new-purchase-from-history="${supplierId}">Registrar primera compra</button></div>`, { wide: true });
 
   const root = $('#modalRoot');
@@ -192,4 +205,8 @@ async function openSupplierPayment(purchaseId, supplierId) {
       toast('Pago registrado.'); closeModal(); await viewSupplierPurchases(supplierId);
     } catch (error) { toast(error.message, 'danger'); }
   });
+}
+
+export async function newHistoricalSupplierPurchase(supplierId) {
+  return newSupplierPurchase(supplierId, { historical: true });
 }

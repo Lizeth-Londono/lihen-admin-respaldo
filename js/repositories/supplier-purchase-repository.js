@@ -54,3 +54,23 @@ export async function registerSupplierPayment(payload) {
     p_operation_key: payload.operationKey
   }), 'No fue posible registrar el pago al proveedor.');
 }
+
+
+export async function createHistoricalSupplierPurchase(payload) {
+  return unwrap(await supabase.rpc('register_historical_supplier_purchase_atomic', {
+    p_supplier_id: payload.supplierId,
+    p_purchase_date: payload.purchaseDate,
+    p_invoice_number: payload.invoiceNumber || null,
+    p_due_date: payload.dueDate || null,
+    p_discount_amount: payload.discountAmount || 0,
+    p_tax_amount: payload.taxAmount || 0,
+    p_freight_amount: payload.freightAmount || 0,
+    p_historical_paid_amount: payload.historicalPaidAmount || 0,
+    p_historical_payment_method: payload.historicalPaymentMethod || null,
+    p_historical_payment_date: payload.historicalPaymentDate || null,
+    p_source_reference: payload.sourceReference || null,
+    p_notes: payload.notes || null,
+    p_items: payload.items,
+    p_operation_key: payload.operationKey
+  }), 'No fue posible registrar la compra histórica.');
+}
