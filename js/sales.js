@@ -1,4 +1,4 @@
-import { createQuickSaleAtomic, cancelQuickSaleAtomic } from './repositories/quick-sale-repository.js';
+import { createQuickSaleAtomic, cancelQuickSaleAtomic, createHistoricalQuickSaleAtomic } from './repositories/quick-sale-repository.js';
 import { QUICK_SALE_PAYMENT_LABELS } from './constants.js';
 import { state, loadProducts, loadCustomers, loadQuickSales, loadFinancialAccounts } from './store.js';
 import { $, $$, escapeHtml, money, dateTime, whatsappUrl } from './utils.js';
@@ -48,6 +48,10 @@ export async function newQuickSale(){
   modal('Nueva venta rápida',`<form id="quickSaleForm" class="quick-sale-form">
     <div class="form-grid">
       <label class="full">Cliente (opcional)<select name="customer_id"><option value="">Consumidor final</option>${state.customers.map(c=>`<option value="${c.id}">${escapeHtml(c.full_name)} · ${escapeHtml(c.whatsapp||'Sin teléfono')}</option>`).join('')}</select></label>
+      <label class="full"><span>Modo de registro</span><select name="record_mode" id="quickSaleRecordMode"><option value="actual">Venta actual · afecta inventario y caja</option><option value="historica_inventario">Venta histórica de reconstrucción · afecta inventario, NO caja</option></select></label>
+      <label id="quickSaleHistoricalDateWrap" hidden>Fecha histórica<input name="historical_occurred_at" type="datetime-local"></label>
+      <label id="quickSaleHistoricalSourceWrap" hidden>Referencia histórica<input name="historical_source_reference" placeholder="Ej. Inauguración 02-08-2026"></label>
+      <div id="quickSaleHistoricalNotice" class="alert warning full" hidden><b>Reconstrucción:</b> esta venta descontará unidades del inventario restaurado, pero no sumará dinero a Caja y cuentas. Se usarán los precios maestros actuales del catálogo y no se aplicarán descuentos.</div>
     </div>
     <section class="quick-product-box sale-quick-box">
       <div class="quick-product-heading"><p class="eyebrow">VENTA INMEDIATA</p><h3>Agregar producto</h3><small>El stock se descontará al guardar.</small></div>
@@ -87,13 +91,31 @@ export async function newQuickSale(){
     if(option)financialAccount.value=option.value;
   };
   paymentMethod.addEventListener('change',suggestAccount);suggestAccount();
+  const recordMode=$('#quickSaleRecordMode');
+  const historicalDateWrap=$('#quickSaleHistoricalDateWrap');
+  const historicalSourceWrap=$('#quickSaleHistoricalSourceWrap');
+  const historicalNotice=$('#quickSaleHistoricalNotice');
+  const syncRecordMode=()=>{
+    const historical=recordMode.value==='historica_inventario';
+    historicalDateWrap.hidden=!historical;historicalSourceWrap.hidden=!historical;historicalNotice.hidden=!historical;
+    historicalDateWrap.querySelector('input').required=historical;
+    financialAccount.required=!historical;financialAccount.disabled=historical;
+    $('#quickSaleDiscountType').disabled=historical;$('#quickSaleDiscountValue').disabled=historical;
+    if(historical){$('#quickSaleDiscountType').value='ninguno';$('#quickSaleDiscountValue').value=0;}
+    renderSaleItems();
+  };
+  recordMode.addEventListener('change',syncRecordMode);syncRecordMode();
   $('#quickSaleDiscountType').onchange=renderSaleItems;$('#quickSaleDiscountValue').oninput=renderSaleItems;renderSaleItems();
   $('#quickSaleForm').onsubmit=async e=>{
     e.preventDefault();if(!saleItems.length){toast('Agrega al menos un producto','warning');return;}
     const button=$('button[type="submit"]',e.currentTarget),fd=Object.fromEntries(new FormData(e.currentTarget));button.disabled=true;button.textContent='Guardando…';
-    const payload=saleItems.map(i=>({product_id:i.product_id,variant_id:i.variant_id,variant_snapshot:i.variant_snapshot,quantity:i.quantity,unit_price:i.unit_price}));
+    const historical=fd.record_mode==='historica_inventario';
+    const payload=saleItems.map(i=>{const master=state.products.find(p=>p.id===i.product_id);return {product_id:i.product_id,variant_id:i.variant_id,variant_snapshot:i.variant_snapshot,quantity:i.quantity,unit_price:historical?Number(master?.sale_price||0):i.unit_price};});
     try{
-      const data=await createQuickSaleAtomic({p_customer_id:fd.customer_id||null,p_payment_method:fd.payment_method,p_financial_account_id:fd.financial_account_id,p_payment_reference:fd.payment_reference||null,p_discount_type:fd.discount_type,p_discount_value:Number(fd.discount_value)||0,p_notes:fd.notes||null,p_items:payload});closeModal();toast(`Venta ${data.sale.sale_number} registrada y stock actualizado`);document.dispatchEvent(new CustomEvent('lihen:refresh'));
+      const data=historical
+        ? await createHistoricalQuickSaleAtomic({p_customer_id:fd.customer_id||null,p_payment_method:fd.payment_method,p_occurred_at:new Date(fd.historical_occurred_at).toISOString(),p_payment_reference:fd.payment_reference||null,p_notes:fd.notes||null,p_source_reference:fd.historical_source_reference||null,p_items:payload})
+        : await createQuickSaleAtomic({p_customer_id:fd.customer_id||null,p_payment_method:fd.payment_method,p_financial_account_id:fd.financial_account_id,p_payment_reference:fd.payment_reference||null,p_discount_type:fd.discount_type,p_discount_value:Number(fd.discount_value)||0,p_notes:fd.notes||null,p_items:payload});
+      closeModal();toast(historical?`Venta histórica ${data.sale.sale_number} registrada: inventario actualizado sin afectar caja.`:`Venta ${data.sale.sale_number} registrada y stock actualizado`);document.dispatchEvent(new CustomEvent('lihen:refresh'));
     }catch(err){button.disabled=false;button.textContent='Guardar venta';toast(err.message||'No fue posible registrar la venta','danger');}
   };
 }

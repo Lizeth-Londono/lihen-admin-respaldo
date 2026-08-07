@@ -3,7 +3,7 @@ import { unwrap } from './helpers.js';
 import { ensureOperationKey } from '../services/operation-key-service.js';
 
 export async function listQuickSales(search = '', limit = 300) {
-  let query = supabase.from('quick_sales').select('*,customer:customers(id,full_name,whatsapp),items:quick_sale_items(*)').order('created_at', { ascending: false });
+  let query = supabase.from('quick_sales').select('*,customer:customers(id,full_name,whatsapp),items:quick_sale_items(*)').eq('reconstruction_archived', false).order('created_at', { ascending: false });
   if (search) query = query.or(`sale_number.ilike.%${search}%`);
   return unwrap(await query.limit(limit), 'No fue posible cargar las ventas rápidas.') || [];
 }
@@ -14,4 +14,9 @@ export async function createQuickSaleAtomic(payload) {
 
 export async function cancelQuickSaleAtomic(payload) {
   return unwrap(await supabase.rpc('cancel_quick_sale_financial_atomic_idempotent', ensureOperationKey(payload, 'anular_venta_rapida')), 'No fue posible anular la venta rápida.');
+}
+
+
+export async function createHistoricalQuickSaleAtomic(payload) {
+  return unwrap(await supabase.rpc('create_historical_quick_sale_inventory_atomic_idempotent', ensureOperationKey(payload, 'crear_venta_historica')), 'No fue posible registrar la venta histórica.');
 }

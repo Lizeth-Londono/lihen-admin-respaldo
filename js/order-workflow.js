@@ -4,7 +4,7 @@ import { ORDER_PAYMENT_LABELS, ORDER_STATUSES } from './constants.js';
 import { calculateOrderTotals } from './order-calculations.js';
 import { confirmationMessage, confirmedMessage } from './order-messages.js';
 import { errorMessage } from './errors.js';
-import { getOrderById, createOrderAtomic, updateOrderAtomic, listSavedOrderItems, closeOrderDirectAtomic } from './repositories/order-repository.js';
+import { getOrderById, createOrderAtomic, updateOrderAtomic, listSavedOrderItems, closeOrderDirectAtomic, createHistoricalOrderAtomic } from './repositories/order-repository.js';
 import { canEditOrder } from './services/order-state-service.js';
 import { orderItemKey as itemKey, normalizeOrderItems as normalizedPayload, compareOrderItems } from './services/order-payload-service.js';
 import { modal, closeModal, toast, badge, totals } from './ui.js';
@@ -30,7 +30,7 @@ function editorMarkup(order){
   const editing=Boolean(order);
   return `<form id="orderEditorForm" class="order-editor">
     <section class="order-editor-sticky">
-      <div class="form-grid"><label class="full">Cliente<select name="customer_id" required><option value="">Selecciona un cliente</option>${state.customers.map(c=>`<option value="${c.id}" ${order?.customer_id===c.id?'selected':''}>${escapeHtml(c.full_name)} · ${escapeHtml(c.whatsapp)}</option>`).join('')}</select></label></div>
+      <div class="form-grid"><label class="full">Cliente<select name="customer_id" required><option value="">Selecciona un cliente</option>${state.customers.map(c=>`<option value="${c.id}" ${order?.customer_id===c.id?'selected':''}>${escapeHtml(c.full_name)} · ${escapeHtml(c.whatsapp)}</option>`).join('')}</select></label>${!editing?`<label class="full">Modo de registro<select name="record_mode" id="orderRecordMode"><option value="actual">Pedido actual · flujo normal</option><option value="historico_vendido">Pedido histórico ya vendido · descuenta inventario, NO caja</option></select></label><label id="orderHistoricalDateWrap" hidden>Fecha histórica<input name="historical_occurred_at" type="datetime-local"></label><label id="orderHistoricalSourceWrap" hidden>Referencia histórica<input name="historical_source_reference" placeholder="Ej. Pedido inauguración 02-08-2026"></label><div id="orderHistoricalNotice" class="alert warning full" hidden><b>Reconstrucción:</b> se registrará directamente como entregado/pagado, consumirá inventario y no modificará Caja y cuentas. Se usarán precios maestros sin descuento.</div>`:''}</div>
       <div class="quick-product-box">
         <div class="quick-product-heading"><p class="eyebrow">AGREGAR PRODUCTO</p><h3>Selección rápida</h3><small>Agrega uno tras otro sin desplazarte.</small></div>
         <label class="quick-product-search">Producto<select id="quickProduct"><option value="">Buscar por nombre, SKU, marca o categoría</option>${state.products.map(productOption).join('')}</select></label>
@@ -225,6 +225,11 @@ export async function openOrderEditor(order=null){
     quick.value='';quickQty.value=1;quickPrice.value=0;quick.focus();
   });
   ['discountType','discountValue','deliveryCost'].forEach(id=>$('#'+id).addEventListener('input',updateSummary));
+  if(!order){
+    const mode=$('#orderRecordMode'),dateWrap=$('#orderHistoricalDateWrap'),sourceWrap=$('#orderHistoricalSourceWrap'),notice=$('#orderHistoricalNotice');
+    const syncMode=()=>{const historical=mode.value==='historico_vendido';dateWrap.hidden=!historical;sourceWrap.hidden=!historical;notice.hidden=!historical;dateWrap.querySelector('input').required=historical;$('#discountType').disabled=historical;$('#discountValue').disabled=historical;if(historical){$('#discountType').value='ninguno';$('#discountValue').value=0;}updateSummary();};
+    mode.addEventListener('change',syncMode);syncMode();
+  }
 
   renderItems();
 
@@ -293,20 +298,17 @@ export async function openOrderEditor(order=null){
         const savedOrder=data?.order||data;
         toast(`Pedido ${savedOrder?.order_number||order.order_number} actualizado correctamente`);
       }else{
-        const data=await createOrderAtomic({
-          p_customer_id:fields.customer_id,
-          p_delivery_address_id:null,
-          p_payment_method:fields.payment_method,
-          p_discount_type:fields.discount_type,
-          p_discount_value:Number(fields.discount_value)||0,
-          p_delivery_cost:Number(fields.delivery_cost)||0,
-          p_discount_reason:null,
-          p_customer_notes:null,
-          p_internal_notes:fields.internal_notes||null,
-          p_items:payload
-        });
+        const historical=fields.record_mode==='historico_vendido';
+        const safePayload=historical?payload.map(item=>{const master=state.products.find(p=>p.id===item.product_id);return {...item,unit_price:Number(master?.sale_price||0)};}):payload;
+        const data=historical
+          ? await createHistoricalOrderAtomic({p_customer_id:fields.customer_id,p_payment_method:fields.payment_method,p_occurred_at:new Date(fields.historical_occurred_at).toISOString(),p_delivery_cost:Number(fields.delivery_cost)||0,p_notes:fields.internal_notes||null,p_source_reference:fields.historical_source_reference||null,p_items:safePayload})
+          : await createOrderAtomic({
+              p_customer_id:fields.customer_id,p_delivery_address_id:null,p_payment_method:fields.payment_method,
+              p_discount_type:fields.discount_type,p_discount_value:Number(fields.discount_value)||0,p_delivery_cost:Number(fields.delivery_cost)||0,
+              p_discount_reason:null,p_customer_notes:null,p_internal_notes:fields.internal_notes||null,p_items:safePayload
+            });
         closeModal();
-        toast(`Pedido ${data.order_number} creado y stock reservado`);
+        toast(historical?`Pedido histórico ${data.order_number} registrado: inventario actualizado sin afectar caja.`:`Pedido ${data.order_number} creado y stock reservado`);
       }
       document.dispatchEvent(new CustomEvent('lihen:refresh'));
     }catch(err){

@@ -1,7 +1,7 @@
 import { buildFinancialAlerts } from './financial-alert-service.js';
 const amount = value => Number(value || 0);
 const isTransfer = movement => ['transferencia_entrada', 'transferencia_salida'].includes(movement.movement_type);
-const isActiveMovement = movement => movement.status === 'activo';
+const isActiveMovement = movement => movement.status === 'activo' && movement.reporting_excluded !== true;
 
 function monthKey(value) {
   const date = new Date(value);
@@ -10,20 +10,21 @@ function monthKey(value) {
 }
 
 function activeItemRows({ completedOrders, completedSales, orderItems, quickSaleItems }) {
-  const orderIds = new Set(completedOrders.map(row => row.id));
-  const saleIds = new Set(completedSales.map(row => row.id));
+  const orderDates = new Map(completedOrders.map(row => [row.id, row.created_at]));
+  const saleDates = new Map(completedSales.map(row => [row.id, row.created_at]));
   return [
-    ...orderItems.filter(item => orderIds.has(item.order_id)),
-    ...quickSaleItems.filter(item => saleIds.has(item.quick_sale_id))
+    ...orderItems.filter(item => orderDates.has(item.order_id)).map(item => ({ ...item, sold_at: orderDates.get(item.order_id) })),
+    ...quickSaleItems.filter(item => saleDates.has(item.sale_id)).map(item => ({ ...item, sold_at: saleDates.get(item.sale_id) }))
   ];
 }
 
+
 export function buildReports({
   orders = [], orderItems = [], quickSales = [], quickSaleItems = [], products = [], suppliers = [],
-  supplierPurchases = [], supplierPurchaseItems = [], supplierPayments = [], financialAccounts = [], financialMovements = []
+  supplierPurchases = [], supplierPurchaseItems = [], supplierPayments = [], financialAccounts = [], financialMovements = [], productCostHistory = []
 }) {
-  const completedOrders = orders.filter(order => order.status === 'entregado');
-  const completedSales = quickSales.filter(sale => sale.status === 'completada');
+  const completedOrders = orders.filter(order => order.status === 'entregado' && order.reconstruction_archived !== true);
+  const completedSales = quickSales.filter(sale => sale.status === 'completada' && sale.reconstruction_archived !== true);
   const soldItems = activeItemRows({ completedOrders, completedSales, orderItems, quickSaleItems });
   const productMap = new Map(products.map(product => [product.id, product]));
 
@@ -48,7 +49,22 @@ export function buildReports({
   const nequiBalance = financialAccounts.filter(account => account.active && String(account.code).toLowerCase() === 'nequi').reduce((sum, account) => sum + amount(account.current_balance), 0);
   const cashBalance = financialAccounts.filter(account => account.active && (String(account.code).toLowerCase() === 'efectivo' || account.account_type === 'efectivo')).reduce((sum, account) => sum + amount(account.current_balance), 0);
 
-  const cogs = soldItems.reduce((sum, item) => sum + amount(item.quantity) * amount(productMap.get(item.product_id)?.current_cost), 0);
+  const costHistoryByProduct = new Map();
+  for (const row of productCostHistory) {
+    if (!costHistoryByProduct.has(row.product_id)) costHistoryByProduct.set(row.product_id, []);
+    costHistoryByProduct.get(row.product_id).push(row);
+  }
+  const costAtSale = item => {
+    const soldAt = new Date(item.sold_at || 0).getTime();
+    const history = costHistoryByProduct.get(item.product_id) || [];
+    let selected = null;
+    for (const row of history) {
+      const at = new Date(row.created_at || 0).getTime();
+      if (Number.isFinite(at) && at <= soldAt) selected = row;
+    }
+    return amount(selected?.new_product_cost ?? selected?.purchased_unit_cost ?? productMap.get(item.product_id)?.current_cost);
+  };
+  const cogs = soldItems.reduce((sum, item) => sum + amount(item.quantity) * costAtSale(item), 0);
   const grossProfit = revenue - cogs;
 
   const byProduct = new Map();
