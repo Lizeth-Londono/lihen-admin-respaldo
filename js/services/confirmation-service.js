@@ -61,6 +61,7 @@ export function confirmAction(config = {}) {
   root.id = 'confirmationRoot';
   root.innerHTML = buildConfirmationMarkup(config);
   document.body.appendChild(root);
+  document.body.classList.add('confirmation-open');
 
   const accept = root.querySelector('[data-confirmation-accept]');
   const cancel = root.querySelector('[data-confirmation-cancel]');
@@ -75,6 +76,7 @@ export function confirmAction(config = {}) {
       settled = true;
       document.removeEventListener('keydown', onKeydown);
       root.remove();
+      document.body.classList.remove('confirmation-open');
       if (previousFocus instanceof HTMLElement) previousFocus.focus();
       resolve(result);
     };

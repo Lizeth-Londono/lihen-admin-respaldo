@@ -205,6 +205,7 @@ export function modal(
   }
 
   lastFocusedElement = document.activeElement;
+  document.body.classList.add('modal-open');
   modalRoot.innerHTML = `
     <div class="modal-backdrop">
       <section
@@ -293,6 +294,7 @@ export function closeModal() {
   }
 
   document.removeEventListener('keydown', handleModalKeydown);
+  document.body.classList.remove('modal-open');
   if (lastFocusedElement instanceof HTMLElement) lastFocusedElement.focus();
   lastFocusedElement = null;
 }

@@ -3,13 +3,14 @@ e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  ./.nojekyll
 b030626b1bba4c6959e59952b9a0cc8810143bd6dfbde5e1ec50df9a38b4fadf  ./404.html
 48999495e31524b38aac743f8a0231324f0b13f18c4a5a47f61b972fdb8d2fc8  ./README.md
 58b11a74467393c0d6df2e0598996aa6eaff769cb68d2ce396854cc0c0323a2f  ./assets/logo-lihen.jpg
-0bb50eec96fb0c480ed6cb5fc5d1e4a21ce9e207146803bef3e8cf813976bae9  ./css/app.css
+4476911b051b84a35cd7f1d0cb2bd1a764c5bf59015610d31a111ec047f86633  ./css/app.css
 90e99f97de38f647a703fdaea979292f774742f87e5cf11029d16ff832e70eff  ./data/catalogo_maestro.csv
 afbe3f54e7f167f09b7747a918ba5f072f6d46d9c98e7d03fd6a2672c2d45124  ./data/inventario_inicial.json
 9f9b9517030b816239b0daa96506fd5c644d4fe64f145cf1bd389aba68e46cbb  ./data/plantillas/plantilla_clientes.csv
 6060edb1463b79914d9a1fd89ee2013c045f3c9d7b97aa74a08a1e2da314d9a2  ./data/plantillas/plantilla_productos_inventario.csv
 24435af7c4a3402acf2f2a45a9dfa4f62dd01c066de27764c3f5933d142d5441  ./data/plantillas/plantilla_proveedores.csv
 5d57a1b9cd495d40f403843498ad01cccf49d68ccc4b71f16e0d5467bdde8d04  ./docs/ACTUALIZACION_INVENTARIO_2026_08_07.md
+967298a4aaf6ca5d4afda9a7ad2995777d85392d908c89c7b48c470ed9c19693  ./docs/AUDITORIA_RESPONSIVE_MODALES_2026_08_08.md
 0a121a4596e44cfe9ac2d352568eb947e83716f21f6bc8f71142539a33fa58e0  ./docs/COMPRAS_HISTORICAS_SIN_IMPACTO.md
 70db899f0194d1760591fe077b8ce6899584c11f9b66bc0927ef4651dd989510  ./docs/CONSOLIDACION_FASES_2_A_15_EN_CURSO.md
 b62fdf2a5d39583bd2ffa06200bfa48d509b811a81ac627f61fbba1d371a6b2b  ./docs/DIAGNOSTICO_IMPLEMENTACION.md
@@ -92,7 +93,7 @@ e156d9371bfccacef9f46050c85e51c9e2a87075c8a33576fdfd562838937916  ./js/repositor
 ed05bf8403bfc2d8017375358510cfbfc56e968a2981d8567c1feeb4d464a1f5  ./js/repositories/supplier-purchase-repository.js
 5fad40b08e64f842c1be60746a55d2fdba9f82dd60b40fb7ff0e0f9d575888f1  ./js/repositories/supplier-repository.js
 8b02153435824d4056280d75358e5c8d47a519063ebfbde3591d604bb5538213  ./js/sales.js
-e069bfed97e27fec4883a0290f85d1662ab6fce7882f8336c94089bf082ad75b  ./js/services/confirmation-service.js
+e2359ff04fe51d93c1a80edb9256e35b639811e51bc8e14ad9cb051342eae94d  ./js/services/confirmation-service.js
 5498ec9c37da1b4ea1871d36fa3811d92c80d4c333aabf5a1cba9791dbb345b8  ./js/services/dashboard-service.js
 cee0fead31e878be4217639561fca2e43ed2845523919cea2554d437966f7ef0  ./js/services/discount-service.js
 bec1a234e0725ffd67f626f5501af28a5a6ac5c7231f557f5fec735f6483700f  ./js/services/financial-account-service.js
@@ -111,7 +112,7 @@ fb95fcbb02eb59b22e85e1f007e67079126d167c549a72f8dd7084d6a5535bfc  ./js/store.js
 b8accf5be3568d7690c6f17cf6d323a8b69977f6a482a930a59e73d7d7e69e6d  ./js/supplier-purchase-bulk.js
 d23b6cf0c381dfc9db4fb1da63350af355b5186f5f4fb9a08a1edc409b5055f1  ./js/supplier-purchases.js
 c7638611fe0c07b1958c84729b140418c7da7a896c2289c0109acdbd563a2061  ./js/ui-auth.js
-e9a0cf976100bb7af54541f4589f27daa07e7362f11c626f43dec170673b78d0  ./js/ui.js
+d9fa6974d89bce18d4e04c9973cecc780a50ba673f216f46d80ca2e033c76da6  ./js/ui.js
 fe38127a8c5b569f19e27d25b0b13bd74318379718bd49e395e0eb331c1ce9cc  ./js/utils.js
 2e4bbbdb8296ac19dc7aa5db22fa26d74a0e32ffa25cb3f971d3ae881213dfee  ./js/views.js
 f8e18306ff8322cc9e774d858542c106b8a6b8072c45782ebf1d0a102416e1fa  ./package.json
@@ -170,6 +171,7 @@ dcd6d98c2ce9256a3ddc22154a2017162225ed03d3d7b7a3ae4d36b204fc6126  ./tests/order-
 2f01e018c6d360268e55e5356d53af3b97624c3d19d72d07a53792b41b96e2a1  ./tests/order-state.test.js
 cc0c0aba1cfe206ac3ebce3ba06d179d24d26cf6661869135069e8aeee02b8d8  ./tests/reconstruction-operational-2026-08-07.test.js
 66c034b22424e8d44e9283590119660eba65d56e16542c5eef304e87931cda93  ./tests/report-financial-phase24.test.js
+febe45d7432ec10336b0cde61d89bbd30cc76b7382f292cd5c7dcd02295c1829  ./tests/responsive-modal-audit-2026-08-08.test.js
 e534ed6e6d189873894c7fbabe95d5c3b947a284ea6e8242f95b1f86fae8b725  ./tests/sales-orders-financial-phase24.test.js
 f5c7d7136a25564d1864e3818593bc1611fcd4dd9ab3b27b85c08a8a133ab6ba  ./tests/security-phase19.test.js
 3101a0cf2cb214e5d66613fab7b17c2c9bdfb75aab4eaf0c6f64b7713e6c2e83  ./tests/sql-migration-coherence-phase24.test.js

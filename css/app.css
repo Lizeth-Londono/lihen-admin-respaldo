@@ -215,3 +215,89 @@ input,select,textarea{min-height:44px}
 @media(max-width:760px){.purchase-item-row{grid-template-columns:1fr 1fr}.purchase-item-row .purchase-product{grid-column:1/-1}.purchase-item-total{align-self:center}.purchase-summary{grid-template-columns:1fr}.purchase-items-section>header,.purchase-card>header{align-items:flex-start;flex-direction:column}}
 
 .alert-summary{display:flex;gap:.5rem;flex-wrap:wrap}.financial-alert-list{display:grid;gap:.75rem}.financial-alert{border:1px solid var(--line,#e5d8ca);border-left-width:5px;border-radius:14px;padding:1rem;background:rgba(255,255,255,.7)}.financial-alert p{margin:.35rem 0 0}.financial-alert.critical{border-left-color:#a63d40}.financial-alert.warning{border-left-color:#c5892f}.financial-alert.info{border-left-color:#557a95}.badge.danger{background:#f7d9da;color:#7d272a}.badge.warning{background:#f8e8c8;color:#7a5317}.badge.info{background:#dbeaf2;color:#31576d}
+
+/* ============================================================
+   AUDITORÍA RESPONSIVE 2026-08-08 · Modales, scroll y sidebar
+   ============================================================ */
+/* Bloquea el documento detrás de cualquier capa modal activa. */
+body.modal-open,
+body.confirmation-open{overflow:hidden;overscroll-behavior:none}
+
+/*
+ * La causa raíz del corte vertical era que .modal tenía max-height y
+ * overflow:hidden, pero no era un contenedor flex/grid que obligara a
+ * .modal-body a encogerse. Por eso el body conservaba su altura intrínseca
+ * y la parte inferior podía quedar recortada. Esta estructura mantiene
+ * header/footer fuera del área desplazable y reserva el scroll al body.
+ */
+.modal{
+  display:flex;
+  flex-direction:column;
+  min-height:0;
+  max-height:calc(100dvh - 32px);
+  overflow:hidden;
+}
+.modal>header,
+.modal>footer{flex:0 0 auto}
+.modal>header{z-index:6}
+.modal-body{
+  flex:1 1 auto;
+  min-height:0;
+  overflow-y:auto;
+  overflow-x:hidden;
+  overscroll-behavior:contain;
+  scrollbar-gutter:stable;
+}
+
+/* La venta rápida puede crecer con muchos productos sin perder sus acciones. */
+.quick-sale-form{min-height:0}
+.quick-sale-form .form-actions{
+  position:sticky;
+  bottom:-25px;
+  z-index:7;
+  margin-top:4px;
+  padding:14px 0 6px;
+  border-top:1px solid var(--line);
+  background:linear-gradient(180deg,rgba(255,255,255,.94),#fff 24%);
+}
+
+/* Confirmaciones: mismo patrón seguro para contenido alto. */
+.confirmation-dialog{
+  display:flex;
+  flex-direction:column;
+  min-height:0;
+  max-height:min(720px,calc(100dvh - 40px));
+  overflow:hidden;
+}
+.confirmation-dialog header,
+.confirmation-dialog footer{flex:0 0 auto}
+.confirmation-body{
+  flex:1 1 auto;
+  min-height:0;
+  overflow-y:auto;
+  overscroll-behavior:contain;
+  scrollbar-gutter:stable;
+}
+
+/* El menú completo debe seguir accesible en pantallas de poca altura. */
+.sidebar{min-height:0;overflow:hidden}
+.sidebar nav{
+  flex:1 1 auto;
+  min-height:0;
+  overflow-y:auto;
+  overscroll-behavior:contain;
+  scrollbar-gutter:stable;
+  padding-right:4px;
+}
+.sidebar-footer{flex:0 0 auto}
+
+@media(max-width:820px){
+  .sidebar{overflow:hidden}
+  .sidebar nav{overflow-y:auto}
+}
+
+@media(max-width:620px){
+  .modal{max-height:92dvh}
+  .quick-sale-form .form-actions{bottom:-18px}
+  .confirmation-dialog{max-height:88dvh}
+}
