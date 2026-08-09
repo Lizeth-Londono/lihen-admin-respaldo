@@ -301,3 +301,56 @@ body.confirmation-open{overflow:hidden;overscroll-behavior:none}
   .quick-sale-form .form-actions{bottom:-18px}
   .confirmation-dialog{max-height:88dvh}
 }
+
+
+/* ===== LIHEN MODAL SCROLL FINAL 2026-08-08 ===== */
+/* Fuente de verdad final para modales altos. No modifica lógica de negocio. */
+.modal-backdrop{
+  overflow:hidden;
+}
+.modal{
+  display:flex;
+  flex-direction:column;
+  min-height:0;
+  max-height:calc(100dvh - 32px);
+  overflow:hidden;
+}
+.modal>header,
+.modal>footer{flex:0 0 auto}
+.modal-body{
+  flex:1 1 auto;
+  min-height:0;
+  overflow-y:auto;
+  overflow-x:hidden;
+  overscroll-behavior:contain;
+  scrollbar-gutter:stable;
+  touch-action:pan-y;
+  -webkit-overflow-scrolling:touch;
+  scroll-behavior:auto;
+}
+/* Venta rápida: un solo scroll vertical (modal-body). */
+.quick-sale-form{min-height:0}
+.quick-sale-form .sale-items-list{
+  max-height:none;
+  overflow:visible;
+}
+.quick-sale-form .form-actions{
+  position:sticky;
+  bottom:0;
+  z-index:7;
+  margin-top:4px;
+  padding:14px 0 6px;
+  border-top:1px solid var(--line);
+  background:linear-gradient(180deg,rgba(255,255,255,.94),#fff 24%);
+}
+/* Editor de pedidos: evita un segundo scroll vertical dentro del modal. */
+.order-editor .order-builder.compact{
+  max-height:none!important;
+  min-height:0;
+  overflow:visible!important;
+  padding-right:0;
+}
+@media(max-width:620px){
+  .modal{max-height:92dvh}
+  .quick-sale-form .form-actions{bottom:0}
+}

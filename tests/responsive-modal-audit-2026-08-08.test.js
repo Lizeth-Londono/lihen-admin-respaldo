@@ -16,8 +16,9 @@ test('modal usa arquitectura flex y body desplazable dentro del viewport', () =>
 });
 
 test('venta rápida mantiene accesibles sus acciones al crecer', () => {
-  assert.match(normalized, /\.quick-sale-form \.form-actions\{ position:sticky; bottom:-25px;/);
-  assert.match(css, /\.sale-items-list\{[^}]*max-height:310px;overflow:auto/);
+  assert.match(normalized, /\.quick-sale-form \.form-actions\{ position:sticky; bottom:0;/);
+  assert.match(normalized, /\.quick-sale-form \.sale-items-list\{ max-height:none; overflow:visible;/);
+  assert.match(normalized, /\.order-editor \.order-builder\.compact\{ max-height:none!important; min-height:0; overflow:visible!important;/);
 });
 
 test('modal bloquea y restaura el scroll del documento', () => {
