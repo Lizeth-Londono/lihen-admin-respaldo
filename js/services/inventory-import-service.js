@@ -285,6 +285,9 @@ export function buildInventoryImportBatchPayload(plan, { sourceName, operationKe
       row_number: item.row_number,
       action: item.action,
       product_id: item.current?.id ?? null,
+      expected: item.action === 'update'
+        ? Object.fromEntries(Object.entries(item.changes || {}).map(([field, values]) => [field, values.before]))
+        : {},
       sku: item.row.sku ?? item.current?.sku ?? null,
       business_line: item.row.business_line,
       category: item.row.category,

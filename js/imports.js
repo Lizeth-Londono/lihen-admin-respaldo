@@ -107,12 +107,7 @@ export function importInventory(){
 }
 
 export async function importBundledInventory(){
- inventoryModal('Cargar inventario inicial de LIHEN','Este cargue viene incluido en el sistema. Los productos se identifican por SKU y nunca se eliminan por no aparecer en el archivo.','<div class="alert success">Archivo integrado: <b>Inventario_LIHEN_Corregido_Final.xlsx</b></div>');
- try{
-  const response=await fetch('data/inventario_inicial.json',{cache:'no-store'});if(!response.ok)throw new Error('No se pudo leer el inventario integrado.');const prepared=(await response.json()).map((row,index)=>({...row,row_number:index+2}));
-  await Promise.all([loadProducts(),loadSuppliers()]);const plan=buildInventoryImportPlan(prepared,state.products,state.suppliers);const preview=previewHtml(plan);$('#inventoryPreview').innerHTML=preview.html;bindRejectedDownload(plan,'Inventario_LIHEN_Corregido_Final.xlsx');const button=$('#runInventoryImport');button.disabled=!plan.summary.total||plan.summary.error>0;
-  button.addEventListener('click',async()=>{const accepted=await confirmAction({title:'Cargar inventario inicial incluido',message:'Esta acción aplicará el lote integrado y puede crear productos o modificar existencias. Los productos ausentes no se eliminarán.',confirmLabel:'Cargar inventario',tone:'warning',details:[{label:'Productos nuevos',value:plan?.summary?.create??0},{label:'Productos por actualizar',value:plan?.summary?.update??0},{label:'Filas sin cambios',value:plan?.summary?.unchanged??0}]});if(!accepted)return;button.disabled=true;try{const r=await runInventoryImport(plan,'Inventario_LIHEN_Corregido_Final.xlsx (integrado)',button);closeModal();toast(`Inventario inicial: ${r.created} creados, ${r.updated} actualizados y ${r.unchanged} sin cambios`);document.dispatchEvent(new CustomEvent('lihen:refresh'));}catch(error){button.disabled=false;button.textContent='Importar inventario';toast(error.message,'danger');}});
- }catch(error){$('#inventoryPreview').innerHTML=`<div class="alert danger">${escapeHtml(error.message)}</div>`;}
+ modal('Inventario inicial migrado',`<div class="alert success"><b>El inventario inicial ya fue migrado a Supabase.</b><p>Por seguridad, el archivo local con costos, proveedores y existencias ya no se publica con el ADMIN. Para nuevas cargas utiliza <b>Importar nuevo Excel</b>, que aplica preview, validación y la RPC transaccional.</p></div><div class="form-actions"><button class="button primary" data-close-modal>Entendido</button></div>`);
 }
 
 function genericImport(kind){

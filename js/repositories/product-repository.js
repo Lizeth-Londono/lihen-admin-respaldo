@@ -19,6 +19,14 @@ export async function createProduct(payload) {
   return unwrap(await supabase.from('products').insert(payload).select().single(), 'No fue posible crear el producto.');
 }
 
+export async function createProductAtomic({ product, initialPhysicalStock = 0, supplierId = null }) {
+  return unwrap(await supabase.rpc('create_product_atomic', {
+    p_product: product,
+    p_initial_physical_stock: Number(initialPhysicalStock) || 0,
+    p_supplier_id: supplierId || null
+  }), 'No fue posible crear el producto de forma atómica.');
+}
+
 export async function updateProduct(id, payload) {
   return unwrap(await supabase.from('products').update(payload).eq('id', id).select('id,name,status,visible_on_website').maybeSingle(), 'No fue posible actualizar el producto.');
 }

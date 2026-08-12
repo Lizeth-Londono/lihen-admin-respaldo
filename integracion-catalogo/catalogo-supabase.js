@@ -1,6 +1,6 @@
 // Adaptador para el catálogo público de LIHEN.CO.
 // Consulta exclusivamente la vista pública catalog_public.
-const SUPABASE_URL='https://admhxolrhhipwcxbythl.supabase.co';
+const SUPABASE_URL='https://admhxolrhhipwcxbtyhl.supabase.co';
 const SUPABASE_KEY='sb_publishable_lBc4zpIyG9PE58hXV0iYfA_8NUBKY4Z';
 
 function money(value){return new Intl.NumberFormat('es-CO',{style:'currency',currency:'COP',maximumFractionDigits:0}).format(Number(value||0));}
