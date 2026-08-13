@@ -4,7 +4,7 @@ export const APP_CONFIG = Object.freeze({
   city: 'Cali',
   deliveryDays: 3,
   whatsappCountryCode: '57',
-  supabaseUrl: 'https://admhxolrhhipwcxbtyhl.supabase.co',
+  supabaseUrl: 'https://admhxolrhhipwcxbythl.supabase.co',
   supabasePublishableKey: 'sb_publishable_lBc4zpIyG9PE58hXV0iYfA_8NUBKY4Z',
   catalogUrl: 'https://lihen-co-admin.github.io/catalogo-lihen-co/',
   facebookUrl: 'https://www.facebook.com/lihen.co.oficial',
