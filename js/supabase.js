@@ -5,7 +5,10 @@ export const supabase = createClient(
   APP_CONFIG.supabaseUrl,
   APP_CONFIG.supabasePublishableKey,
   {
-    auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true },
-    global: { headers: { 'x-application-name': 'lihen-admin' } }
+    auth: {
+      persistSession: true,
+      autoRefreshToken: true,
+      detectSessionInUrl: true
+    }
   }
 );

@@ -8,7 +8,7 @@ import {
   isAuthCallback
 } from './store.js';
 import { $, $$ } from './utils.js';
-import { errorMessage, withPendingButton } from './errors.js';
+import { errorMessage, logAuthError, withPendingButton } from './errors.js';
 import { shell, login, passwordSetup, toast, closeModal, modal } from './ui.js';
 import { renderRoute, showOrder } from './views.js';
 import {
@@ -75,8 +75,8 @@ async function boot() {
     if (state.session) await renderApp();
     else renderLogin();
   } catch (error) {
-    console.error(error);
-    renderLogin('No fue posible conectar con Supabase. Revisa la conexión.');
+    logAuthError('boot/loadSession', error);
+    renderLogin(errorMessage(error, 'No fue posible iniciar LIHEN Admin. Inténtalo nuevamente.'));
   }
 }
 
@@ -95,10 +95,8 @@ function renderLogin(error = '') {
         await renderApp();
       });
     } catch (loginError) {
-      const message = loginError.message === 'Invalid login credentials'
-        ? 'Correo o contraseña incorrectos.'
-        : errorMessage(loginError);
-      renderLogin(message);
+      logAuthError('login/signInWithPassword', loginError);
+      renderLogin(errorMessage(loginError));
     }
   });
 }
@@ -128,6 +126,7 @@ function renderPasswordSetup(error = '') {
         await renderApp();
       });
     } catch (setupError) {
+      logAuthError('password/updateUser', setupError);
       renderPasswordSetup(errorMessage(setupError));
     }
   });
@@ -165,6 +164,7 @@ function showPasswordReset() {
         toast('Revisa tu correo para continuar');
       });
     } catch (resetError) {
+      logAuthError('password/resetPasswordForEmail', resetError);
       toast(errorMessage(resetError, 'No fue posible enviar el enlace.'), 'danger');
     }
   });
