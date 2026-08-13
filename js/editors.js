@@ -2,6 +2,7 @@ import { supabase } from './supabase.js';
 import { state, loadSuppliers, loadProducts } from './store.js';
 import { $, escapeHtml } from './utils.js';
 import { modal, closeModal, toast } from './ui.js';
+import { findProductBySku, updateProduct } from './repositories/product-repository.js';
 
 const val = value => value ?? '';
 const num = value => value === '' || value == null ? null : Number(value);
@@ -110,6 +111,7 @@ export async function editProduct(id){
     <label>Proveedor principal<select name="supplier_id"><option value="">Sin asignar</option>${state.suppliers.map(s=>`<option value="${s.id}" ${s.id===mainSupplier?'selected':''}>${escapeHtml(s.business_name)}</option>`).join('')}</select></label>
     <label>Visible en la página<select name="visible_on_website"><option value="true" ${product.visible_on_website?'selected':''}>Sí</option><option value="false" ${!product.visible_on_website?'selected':''}>No</option></select></label>
     <label>Estado<select name="status"><option value="activo" ${product.status==='activo'?'selected':''}>Activo</option><option value="oculto" ${product.status!=='activo'?'selected':''}>Oculto</option></select></label>
+    <label class="full">Imagen principal pública<input name="main_image_url" type="url" value="${escapeHtml(val(product.main_image_url))}" placeholder="https://... o URL pública existente"></label>
     <label class="full">Descripción<textarea name="description" rows="4">${escapeHtml(val(product.description))}</textarea></label>
     <div class="callout full"><b>Stock físico actual: ${inventory.physical_stock||0}</b><p>Para cambiar cantidades usa “Ajustar inventario”, así queda trazabilidad.</p></div>
     <div class="form-actions full"><button type="button" class="button ghost" data-close-modal>Cancelar</button><button class="button primary" type="submit">Guardar cambios</button></div>
@@ -118,10 +120,10 @@ export async function editProduct(id){
     event.preventDefault(); const form=event.currentTarget; const f=Object.fromEntries(new FormData(form)); setSaving(form,true);
     try{
       const sku=f.sku?.trim()||null;
-      if(sku){const {data:duplicate,error:dError}=await supabase.from('products').select('id,name').ilike('sku',sku).neq('id',id).maybeSingle();if(dError)throw dError;if(duplicate)throw new Error(`El SKU ${sku} ya pertenece a ${duplicate.name}.`);}
-      const payload={catalog_code:f.catalog_code?.trim()||null,sku,name:f.name.trim(),business_line:f.business_line,category:f.category?.trim()||null,brand:f.brand?.trim()||null,sale_price:Number(f.sale_price),current_cost:num(f.current_cost),minimum_stock:Number(f.minimum_stock)||0,visible_on_website:f.visible_on_website==='true',status:f.status,description:f.description?.trim()||null,updated_by:state.profile.id};
-      const {data:updated,error}=await supabase.from('products').update(payload).eq('id',id).select('id,name,status,visible_on_website').maybeSingle();
-      if(error)throw error; if(!updated)throw new Error('Supabase no permitió actualizar el producto. Ejecuta la Migración 007 incluida en el ZIP.');
+      if(sku){const duplicate=await findProductBySku(sku,id);if(duplicate)throw new Error(`El SKU ${sku} ya pertenece a ${duplicate.name}.`);}
+      const payload={catalog_code:f.catalog_code?.trim()||null,sku,name:f.name.trim(),business_line:f.business_line,category:f.category?.trim()||null,brand:f.brand?.trim()||null,sale_price:Number(f.sale_price),current_cost:num(f.current_cost),minimum_stock:Number(f.minimum_stock)||0,main_image_url:f.main_image_url?.trim()||null,visible_on_website:f.visible_on_website==='true',status:f.status,description:f.description?.trim()||null,updated_by:state.profile.id};
+      const updated=await updateProduct(id,payload);
+      if(!updated)throw new Error('Supabase no permitió actualizar el producto. Ejecuta la Migración 007 incluida en el ZIP.');
       const {error:clearError}=await supabase.from('supplier_products').update({preferred:false}).eq('product_id',id); if(clearError)throw clearError;
       if(f.supplier_id){
         const {data:relation,error:readError}=await supabase.from('supplier_products').select('id').eq('supplier_id',f.supplier_id).eq('product_id',id).maybeSingle(); if(readError)throw readError;

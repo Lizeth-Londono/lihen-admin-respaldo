@@ -1,7 +1,7 @@
 import { supabase } from '../supabase.js';
 import { unwrap } from './helpers.js';
 
-const PRODUCT_SELECT = '*,inventory(id,physical_stock,reserved_stock,available_stock,pending_stock,average_cost),supplier_products(preferred,supplier:suppliers(id,business_name,whatsapp))';
+const PRODUCT_SELECT = '*,inventory(id,physical_stock,reserved_stock,available_stock,pending_stock,average_cost),product_images(id,public_url,is_main,sort_order),supplier_products(preferred,supplier:suppliers(id,business_name,whatsapp))';
 
 export async function listProducts(search = '', limit = 300) {
   let query = supabase.from('products').select(PRODUCT_SELECT).order('name');
