@@ -1,3 +1,5 @@
+import { normalizeCatalogCode, normalizedCatalogCodeKey } from './product-code-service.js';
+
 const normalize = value => String(value ?? '')
   .normalize('NFD')
   .replace(/[\u0300-\u036f]/g, '')
@@ -84,8 +86,10 @@ export function buildInventoryImportPlan(rows, products, suppliers = []) {
   const byId = new Map((products || []).map(product => [String(product.id), product]));
   const bySku = new Map((products || []).filter(product => product.sku).map(product => [normalize(product.sku), product]));
   const supplierByName = new Map((suppliers || []).filter(item => item?.active !== false).map(item => [normalize(item.business_name), item]));
+  const byCatalogCode = new Map((products || []).map(product => [normalizedCatalogCodeKey(product.catalog_code), product]).filter(([key]) => key));
   const seenIds = new Map();
   const seenSkus = new Map();
+  const seenCatalogCodes = new Map();
   const result = [];
 
   for (const row of rows || []) {
@@ -96,6 +100,9 @@ export function buildInventoryImportPlan(rows, products, suppliers = []) {
     const internalId = String(row.internal_id ?? '').trim();
     const sku = String(row.sku ?? '').trim();
     const normalizedSku = normalize(sku);
+    const catalogCode = normalizeCatalogCode(row.catalog_code);
+    const normalizedCatalogCode = normalizedCatalogCodeKey(catalogCode);
+    if (Object.prototype.hasOwnProperty.call(row, 'catalog_code')) row.catalog_code = catalogCode;
 
     validateRowValues(row, errors, warnings, issues);
 
@@ -107,6 +114,11 @@ export function buildInventoryImportPlan(rows, products, suppliers = []) {
       if (seenSkus.has(normalizedSku)) addIssue(errors, issues, issue('sku', sku, `Está repetido; también aparece en la fila ${seenSkus.get(normalizedSku)}.`, 'Usa un SKU único por fila o elimina la fila duplicada.'));
       else seenSkus.set(normalizedSku, rowNumber);
     }
+    if (normalizedCatalogCode) {
+      if (seenCatalogCodes.has(normalizedCatalogCode)) {
+        addIssue(errors, issues, issue('catalog_code', catalogCode, `Está repetido; también aparece en la fila ${seenCatalogCodes.get(normalizedCatalogCode)}.`, 'Cada Código catálogo solo puede pertenecer a un producto. Corrige el valor repetido o déjalo vacío si todavía no aplica.'));
+      } else seenCatalogCodes.set(normalizedCatalogCode, rowNumber);
+    }
 
     const productById = internalId ? byId.get(internalId) : null;
     const productBySku = normalizedSku ? bySku.get(normalizedSku) : null;
@@ -116,6 +128,13 @@ export function buildInventoryImportPlan(rows, products, suppliers = []) {
     }
 
     const current = productById || productBySku || null;
+
+    if (normalizedCatalogCode) {
+      const owner = byCatalogCode.get(normalizedCatalogCode);
+      if (owner && (!current || String(owner.id) !== String(current.id))) {
+        addIssue(errors, issues, issue('catalog_code', catalogCode, `Ya pertenece a ${owner.sku || 'otro producto'} · ${owner.name || 'sin nombre'}.`, 'Usa un Código catálogo diferente o deja la celda vacía para guardar NULL.'));
+      }
+    }
 
     if (!current && !row.business_line) {
       addIssue(errors, issues, issue('business_line', row.business_line, 'Un producto nuevo debe indicar su línea de negocio.', 'Usa Beauty Care o Style.'));
@@ -268,7 +287,7 @@ export function buildNewProductPayload(row, userId) {
     minimum_stock: row.minimum_stock ?? 0,
     visible_on_website: row.visible_on_website ?? false,
     status: row.status || 'activo',
-    catalog_code: row.catalog_code ?? null,
+    catalog_code: normalizeCatalogCode(row.catalog_code),
     created_by: userId,
     updated_by: userId
   };
@@ -302,7 +321,7 @@ export function buildInventoryImportBatchPayload(plan, { sourceName, operationKe
       minimum_stock: item.row.minimum_stock,
       visible_on_website: item.row.visible_on_website,
       status: item.row.status ? (normalize(item.row.status) === 'activo' ? 'activo' : ['oculto','inactivo','inactive'].includes(normalize(item.row.status)) ? 'oculto' : item.row.status) : item.row.status,
-      catalog_code: item.row.catalog_code
+      catalog_code: normalizeCatalogCode(item.row.catalog_code)
     }));
   return {
     p_source_file: String(sourceName || 'inventario.xlsx'),

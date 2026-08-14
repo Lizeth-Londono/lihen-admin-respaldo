@@ -4,6 +4,7 @@ b030626b1bba4c6959e59952b9a0cc8810143bd6dfbde5e1ec50df9a38b4fadf  ./404.html
 8ebccfaf7bc55946e6d084b87ec7aaaccc3bced53546bf1df23ac012972ec18f  ./DIAGNOSTICO_COMPRAS_PROVEEDORES_LIHEN_2026-08-14.md
 db60edb385c2d595309c2bfedfff1e752a894a17ae5bf4a3b36570f307c0a6b6  ./IMPLEMENTACION_ADMIN_WEB_2026-08-12.md
 83b196e8dbcb1d8e0e5c2f80e9506a35a003c36cce073ece68fc05cc698d2c7c  ./IMPLEMENTACION_COMPRAS_PROVEEDORES_2026-08-14.md
+cb7b4f8d6c78a3deecd2908d1213b7bde04c91acc47da224cce18d0bd6d75dc0  ./IMPLEMENTACION_SKU_CATALOG_CODE_2026-08-14.md
 48999495e31524b38aac743f8a0231324f0b13f18c4a5a47f61b972fdb8d2fc8  ./README.md
 58b11a74467393c0d6df2e0598996aa6eaff769cb68d2ce396854cc0c0323a2f  ./assets/logo-lihen.jpg
 8bccfa4a075297e3841631bd90de8592a62ec8b8972007ea69bf0261a2b274b2  ./css/app.css
@@ -78,7 +79,7 @@ cae3366de311d41acf6704c948fe5237059c25df526dee3da463fa8ffa671d07  ./js/core/comm
 3116e640488d85bcb00750389df4af14177a5beeafdc5095c2e358867b9bb6e1  ./js/editors.js
 d9d8af8e5362b9d2dbde358f09b4ef2706bf8e4bdeec9d03d29c88c3b0d5733c  ./js/errors.js
 19b00339dc753a85f361d468f155fb09d056306db9eb2cb7f52a7f629a975b18  ./js/financial-accounts.js
-c296099e9d9fe6487bd95c3efb5f63a8bb5dc4625590c7efc2b446156d468f97  ./js/forms.js
+2a56db26bb17cd41425a2996f17af04d2714fc168bc970d5702e17d6863fc7af  ./js/forms.js
 bd161fddfbaf87bac3a61696625b373d30a5a313fe0bd2555d307c0bc3f16779  ./js/imports.js
 e9435510f06b13da3c4b73da4b80673df1ad19e08a1efe6994b2294142ce6145  ./js/inventory-export.js
 225170585dcecb69178e1930e1950ae9349c7b9a8b02e71e160edfd8c0224d48  ./js/main.js
@@ -106,11 +107,12 @@ e2359ff04fe51d93c1a80edb9256e35b639811e51bc8e14ad9cb051342eae94d  ./js/services/
 cee0fead31e878be4217639561fca2e43ed2845523919cea2554d437966f7ef0  ./js/services/discount-service.js
 bec1a234e0725ffd67f626f5501af28a5a6ac5c7231f557f5fec735f6483700f  ./js/services/financial-account-service.js
 3cb4bf47716152d8d1865beb7842e7392c923f4598c7346da5cd7a683bb9da23  ./js/services/financial-alert-service.js
-08782d29d00968a2d74ded5d15d1dfd4aaf6a7b6a33c305adb263f11ca7f4af4  ./js/services/inventory-import-service.js
+3ff3820c44c9804549db123558e5eabc387370d2fd21e9b066973e0e88705ada  ./js/services/inventory-import-service.js
 111b762263ddeb28111c62f90692128a8767df7271ef14450f12889872e150e0  ./js/services/inventory-workbook-service.js
 fdae1e8c856cbc61eaa600d7b8be962ce76fc0bf98a3e405aa35fbda6b9590c5  ./js/services/operation-key-service.js
 d3de4f021ab81af28a08e9a8df4057e589143355110a00867c63a99b7a44d192  ./js/services/order-payload-service.js
 12436de3f1c17f0b2fe4c660a0f16dc1be4561c1c00ac5a9be6693551b20b0f1  ./js/services/order-state-service.js
+8c9ee34959cc50af470be2d2428694ea87899773ccbf1fba6201d1caa275cbd5  ./js/services/product-code-service.js
 673ac00752721d191b2b68a6b2a21d46591325247a8f1e1c3af0c65b664ee86a  ./js/services/report-service.js
 986190ffb9544a1a1ae3563dfe521fcf36a3f2166142883a365fef7864a98ab3  ./js/services/supplier-purchase-bulk-service.js
 18d6d5a2c5870cfb2a75a2ffac0d609cadf6d9a9e2d4f350d1ee3273bcc10dc5  ./js/services/supplier-purchase-service.js
@@ -170,6 +172,8 @@ a37fa3fec12342d9f8e77af659c12d0f16ff7f158815f93a1cdbe0e00de419f4  ./sql/045_ROLL
 7171709708fc85f3c189fbfc082e3834e365ff9e130455571b64ec09c8f0f3e3  ./sql/045_integracion_admin_web_catalog_contract.sql
 a482b215fb1420200a3591da990a3f2805d21f93b9fcff23428acbb419e09d47  ./sql/046_ROLLBACK_compras_proveedor_pago_externo_y_estados.sql
 5cf7b20628709fa8bce0e3e95cb21defb0e5f110c891e99a0a88af60d3832733  ./sql/046_compras_proveedor_pago_externo_y_estados.sql
+35184969aed4f33370060655d56f1ba4e1f8714fe0a9c1c63a2e6fade29f2096  ./sql/047_ROLLBACK_catalog_code_y_sku_sugerido.sql
+2f2384647ead0f88b1a109c16dd04962247967ef9c33f37317498092ffbbe141  ./sql/047_catalog_code_y_sku_sugerido.sql
 610b316e54c1e69c21ddc860de2c130cae4ccd533f63ca6d281338c548d68dac  ./sql/DIAGNOSTICO_PAYLOAD_Y_RPC_V2.sql
 d7676874dd68893f10ba935b3e9b8d350613bc7f58b8817e33b39d9e9b996cb6  ./sql/DIAGNOSTICO_SUPABASE_EDICION_PEDIDOS_LIMPIO.sql
 df0cc203a3cc496eab2b6a9fd78de1bde25efa5dca266e98bfade7de102051d9  ./sql/MONITOREO_OPERATIVO_FASE_18.sql
@@ -207,6 +211,7 @@ c90fd49f23298fbc8f1a8e2a8ddf70fb71bcc64e9d7fa3a4690740c3d635fce1  ./tests/invent
 94ccad39f1a33963b9568b0c05180e2647c68590fa4aab7dc028ace1d1f65f98  ./tests/order-calculations.test.js
 dcd6d98c2ce9256a3ddc22154a2017162225ed03d3d7b7a3ae4d36b204fc6126  ./tests/order-payload.test.js
 2f01e018c6d360268e55e5356d53af3b97624c3d19d72d07a53792b41b96e2a1  ./tests/order-state.test.js
+6df42ad3b9df306da4a22ed5db4fb1f45a1f00fc3eae30b9914bfb2aaa6859aa  ./tests/product-code-and-catalog-code-2026-08-14.test.js
 beb10462297e1be572acacf4e5742eaba0b593cc86a55d8614a1916eaf6c5575  ./tests/product-phase6.test.js
 e80495c02882b05c1b49df7b31ff09b4dd3a631265dbd4d954d886efce758fa5  ./tests/production-config-final.test.js
 cc0c0aba1cfe206ac3ebce3ba06d179d24d26cf6661869135069e8aeee02b8d8  ./tests/reconstruction-operational-2026-08-07.test.js
