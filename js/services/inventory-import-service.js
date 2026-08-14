@@ -70,8 +70,8 @@ function validateRowValues(row, errors, warnings, issues) {
   if (Object.prototype.hasOwnProperty.call(row, 'visible_on_website') && typeof row.visible_on_website !== 'boolean') {
     addIssue(errors, issues, issue('visible_on_website', row.visible_on_website, 'El valor no se reconoce como visible u oculto.', 'Usa Sí/No, Visible/Oculto, TRUE/FALSE o 1/0.'));
   }
-  if (row.status && !['activo', 'inactivo'].includes(normalize(row.status))) {
-    addIssue(errors, issues, issue('status', row.status, 'El estado no es válido.', 'Usa únicamente Activo o Inactivo.'));
+  if (row.status && !['activo', 'oculto'].includes(normalize(row.status))) {
+    addIssue(errors, issues, issue('status', row.status, 'El estado no es válido.', 'Usa únicamente Activo u Oculto/Inactivo.'));
   }
   if (row.business_line && !['beauty care', 'style'].includes(normalize(row.business_line))) {
     const item = issue('business_line', row.business_line, 'La línea no coincide con Beauty Care o Style.', 'Corrige la línea o confirma que deba revisarse manualmente.', 'warning');
@@ -301,7 +301,7 @@ export function buildInventoryImportBatchPayload(plan, { sourceName, operationKe
       physical_stock: item.row.physical_stock,
       minimum_stock: item.row.minimum_stock,
       visible_on_website: item.row.visible_on_website,
-      status: item.row.status,
+      status: item.row.status ? (normalize(item.row.status) === 'activo' ? 'activo' : ['oculto','inactivo','inactive'].includes(normalize(item.row.status)) ? 'oculto' : item.row.status) : item.row.status,
       catalog_code: item.row.catalog_code
     }));
   return {

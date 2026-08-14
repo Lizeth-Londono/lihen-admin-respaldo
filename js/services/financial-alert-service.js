@@ -15,7 +15,7 @@ export function buildFinancialAlerts({ supplierPurchases = [], supplierPurchaseI
     itemsByPurchase.set(item.supplier_request_id, rows);
   }
 
-  for (const purchase of supplierPurchases.filter(row => !['cancelada', 'anulada'].includes(row.status))) {
+  for (const purchase of supplierPurchases.filter(row => String(row.status || '') !== 'cancelada')) {
     const balance = amount(purchase.balance_due);
     const supplierName = purchase.supplier?.business_name || 'Proveedor';
     if (balance > 0 && purchase.due_date) {

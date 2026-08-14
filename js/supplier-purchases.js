@@ -68,7 +68,7 @@ export async function newSupplierPurchase(supplierId, { historical = false } = {
     ${historical ? `<label>Valor pagado históricamente<input name="historical_paid_amount" type="number" min="0" step="1" value="0"></label><label>Medio de pago histórico<select name="historical_payment_method"><option value="">Sin registrar</option><option value="nequi">Nequi</option><option value="efectivo">Efectivo</option><option value="transferencia">Transferencia</option><option value="otro">Otro</option></select></label><label>Fecha del pago histórico<input name="historical_payment_date" type="date"></label><label>Referencia / origen<input name="source_reference" placeholder="Excel, imagen, factura..."></label><div class="callout full"><b>Registro histórico sin impacto</b><p>No aumentará el inventario actual ni descontará dinero de Nequi o efectivo.</p></div>` : ``}
     <div class="purchase-totals"><span>Subtotal <b data-purchase-subtotal>${money(0)}</b></span><span>Total <strong data-purchase-total>${money(0)}</strong></span></div>
     <label class="full">Observaciones<textarea name="notes" rows="3"></textarea></label>
-    <div class="form-actions full"><button type="button" class="button ghost" data-close-modal>Cancelar</button><button class="button primary" type="submit">Guardar borrador</button></div>
+    <div class="form-actions full"><button type="button" class="button ghost" data-close-modal>Cancelar</button>${historical ? '<button class="button primary" type="submit" name="purchase_action" value="historical">Registrar compra histórica</button>' : '<button class="button secondary" type="submit" name="purchase_action" value="draft">Guardar borrador</button><button class="button primary" type="submit" name="purchase_action" value="confirm">Confirmar compra</button>'}</div>
   </form>`, { wide: true });
 
   const form = $('#supplierPurchaseForm');
@@ -90,12 +90,17 @@ export async function newSupplierPurchase(supplierId, { historical = false } = {
     event.preventDefault();
     try {
       const data = Object.fromEntries(new FormData(form));
+      const requestedAction = historical ? 'historical' : (event.submitter?.value || 'confirm');
       const items = normalizePurchaseItems(collectItems(form));
       const totals = calculatePurchaseTotals(items, { discountAmount: data.discount_amount, taxAmount: data.tax_amount, freightAmount: data.freight_amount });
       const accepted = await confirmAction({
-        title: historical ? 'Registrar compra histórica' : 'Guardar compra en borrador',
-        message: historical ? 'Se registrará solo para trazabilidad. El inventario y las cuentas actuales no cambiarán.' : 'La compra quedará registrada, pero todavía no modificará inventario ni dinero.',
-        confirmLabel: historical ? 'Registrar compra histórica' : 'Guardar borrador',
+        title: historical ? 'Registrar compra histórica' : requestedAction === 'draft' ? 'Guardar compra en borrador' : 'Confirmar compra',
+        message: historical
+          ? 'Se registrará solo para trazabilidad. El inventario y las cuentas actuales no cambiarán.'
+          : requestedAction === 'draft'
+            ? 'La compra quedará guardada para completarla después. No modificará inventario físico ni caja.'
+            : 'La compra quedará confirmada y lista para recibir mercancía o registrar pagos. Confirmarla no descuenta dinero ni aumenta el inventario físico.',
+        confirmLabel: historical ? 'Registrar compra histórica' : requestedAction === 'draft' ? 'Guardar borrador' : 'Confirmar compra',
         details: [{ label: 'Proveedor', value: supplier.business_name }, { label: 'Productos', value: String(items.length) }, moneyDetail('Total', totals.total)]
       });
       if (!accepted) return;
@@ -121,10 +126,18 @@ export async function newSupplierPurchase(supplierId, { historical = false } = {
           operationKey: createOperationKey('compra_historica_proveedor')
         });
       } else {
-        await createSupplierPurchase({ ...commonPayload, operationKey: createOperationKey('crear_compra_proveedor') });
+        const createKey = createOperationKey('crear_compra_proveedor');
+        const purchase = await createSupplierPurchase({ ...commonPayload, operationKey: createKey });
+        if (requestedAction === 'confirm') {
+          await confirmSupplierPurchase(purchase.id, `${createKey}:confirm`);
+        }
       }
       closeModal();
-      toast(historical ? 'Compra histórica registrada sin afectar inventario ni caja.' : 'Compra guardada como borrador.');
+      toast(historical
+        ? 'Compra histórica registrada sin afectar inventario ni caja.'
+        : requestedAction === 'draft'
+          ? 'Compra guardada como borrador.'
+          : 'Compra confirmada. Ya puedes recibir mercancía o registrar el pago.');
       document.dispatchEvent(new CustomEvent('lihen:refresh'));
     } catch (error) { toast(error.message, 'danger'); }
   });
@@ -190,19 +203,70 @@ async function openSupplierPayment(purchaseId, supplierId) {
   const purchase = state.supplierPurchases.find((item) => item.id === purchaseId);
   await loadFinancialAccounts();
   const accounts = state.financialAccounts.filter((account) => account.active !== false && account.initial_balance_configured);
-  modal('Registrar pago a proveedor', `<form id="supplierPaymentForm" class="form-grid"><label class="full">Cuenta<select name="account_id" required><option value="">Selecciona</option>${accounts.map((account) => `<option value="${account.id}">${escapeHtml(account.name)} · ${money(account.current_balance)}</option>`).join('')}</select></label><label>Valor<input name="amount" type="number" min="1" max="${Number(purchase.balance_due || 0)}" value="${Number(purchase.balance_due || 0)}" required></label><label>Fecha y hora<input name="paid_at" type="datetime-local" value="${dateTimeInputValue()}" required></label><label>Medio de pago<select name="payment_method"><option value="nequi">Nequi</option><option value="efectivo">Efectivo</option><option value="transferencia">Transferencia</option><option value="otro">Otro</option></select></label><label>Referencia<input name="reference_number"></label><label class="full">Observaciones<textarea name="notes" rows="3"></textarea></label><div class="form-actions full"><button type="button" class="button ghost" data-close-modal>Cancelar</button><button class="button primary">Registrar pago</button></div></form>`);
-  $('#supplierPaymentForm').addEventListener('submit', async (event) => {
+  modal('Registrar pago a proveedor', `<form id="supplierPaymentForm" class="form-grid">
+    <label class="full">Origen del dinero<select name="payment_source"><option value="lihen">Cuenta de LIHEN</option><option value="external">Dinero personal / externo</option></select></label>
+    <label class="full" data-lihen-account-field>Cuenta LIHEN<select name="account_id"><option value="">Selecciona</option>${accounts.map((account) => `<option value="${account.id}">${escapeHtml(account.name)} · ${money(account.current_balance)}</option>`).join('')}</select></label>
+    <div class="callout full" data-external-payment-note hidden><b>Pago fuera de caja LIHEN</b><p>Este pago reducirá la deuda con el proveedor, pero no descontará dinero de Nequi ni del efectivo de LIHEN.</p></div>
+    <label>Valor<input name="amount" type="number" min="1" max="${Number(purchase.balance_due || 0)}" value="${Number(purchase.balance_due || 0)}" required></label>
+    <label>Fecha y hora<input name="paid_at" type="datetime-local" value="${dateTimeInputValue()}" required></label>
+    <label>Medio de pago<select name="payment_method"><option value="nequi">Nequi</option><option value="efectivo">Efectivo</option><option value="transferencia">Transferencia</option><option value="otro">Otro</option></select></label>
+    <label>Referencia<input name="reference_number"></label>
+    <label class="full">Observaciones<textarea name="notes" rows="3"></textarea></label>
+    <div class="form-actions full"><button type="button" class="button ghost" data-close-modal>Cancelar</button><button class="button primary">Registrar pago</button></div>
+  </form>`);
+  const form = $('#supplierPaymentForm');
+  const sourceSelect = form.elements.payment_source;
+  const accountField = $('[data-lihen-account-field]', form);
+  const externalNote = $('[data-external-payment-note]', form);
+  const syncSource = () => {
+    const external = sourceSelect.value === 'external';
+    accountField.hidden = external;
+    externalNote.hidden = !external;
+    form.elements.account_id.required = !external;
+    if (external) form.elements.account_id.value = '';
+  };
+  sourceSelect.addEventListener('change', syncSource);
+  syncSource();
+  form.addEventListener('submit', async (event) => {
     event.preventDefault();
     const data = Object.fromEntries(new FormData(event.currentTarget));
-    const account = accounts.find((item) => item.id === data.account_id);
+    const external = data.payment_source === 'external';
+    const account = external ? null : accounts.find((item) => item.id === data.account_id);
     const amount = Number(data.amount);
     try {
-      if (!account) throw new Error('Selecciona una cuenta válida.');
+      if (!external && !account) throw new Error('Selecciona una cuenta válida de LIHEN.');
       if (!(amount > 0) || amount > Number(purchase.balance_due || 0)) throw new Error('El pago supera el saldo pendiente.');
-      const accepted = await confirmAction({ title: 'Registrar pago', message: 'El valor se descontará de la cuenta seleccionada.', confirmLabel: 'Pagar proveedor', tone: 'warning', details: [{ label: 'Cuenta', value: account.name }, moneyDetail('Valor', amount), moneyDetail('Saldo posterior estimado', Number(account.current_balance) - amount)] });
+      if (!external && Number(account.current_balance) < amount) throw new Error('La cuenta seleccionada no tiene saldo suficiente.');
+      const details = [
+        { label: 'Origen', value: external ? 'Dinero personal / externo' : 'Cuenta LIHEN' },
+        ...(account ? [{ label: 'Cuenta', value: account.name }] : []),
+        moneyDetail('Valor', amount),
+        ...(account ? [moneyDetail('Saldo actual', Number(account.current_balance)), moneyDetail('Saldo posterior estimado', Number(account.current_balance) - amount)] : [])
+      ];
+      const accepted = await confirmAction({
+        title: 'Registrar pago',
+        message: external
+          ? 'El proveedor quedará pagado por este valor sin afectar las cuentas de LIHEN.'
+          : 'El valor se descontará únicamente de la cuenta de LIHEN seleccionada.',
+        confirmLabel: external ? 'Confirmar pago externo' : 'Pagar proveedor',
+        tone: 'warning',
+        details
+      });
       if (!accepted) return;
-      await registerSupplierPayment({ purchaseId, accountId: data.account_id, amount, paymentMethod: data.payment_method, paidAt: new Date(data.paid_at).toISOString(), referenceNumber: data.reference_number, notes: data.notes, operationKey: createOperationKey('pago_proveedor') });
-      toast('Pago registrado.'); closeModal(); await viewSupplierPurchases(supplierId);
+      await registerSupplierPayment({
+        purchaseId,
+        accountId: account?.id || null,
+        paymentSource: external ? 'external' : 'lihen',
+        amount,
+        paymentMethod: data.payment_method,
+        paidAt: new Date(data.paid_at).toISOString(),
+        referenceNumber: data.reference_number,
+        notes: data.notes,
+        operationKey: createOperationKey('pago_proveedor')
+      });
+      toast(external ? 'Pago externo registrado sin afectar caja LIHEN.' : 'Pago registrado y descontado de la cuenta seleccionada.');
+      closeModal();
+      await viewSupplierPurchases(supplierId);
     } catch (error) { toast(error.message, 'danger'); }
   });
 }

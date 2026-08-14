@@ -25,7 +25,7 @@ function safe(value) {
 
 function productStatus(product) {
   const status = String(product?.status ?? '').trim().toLowerCase();
-  if (status === 'inactivo' || product?.active === false) return 'Inactivo';
+  if (['inactivo','oculto'].includes(status) || product?.active === false) return 'Inactivo';
   return 'Activo';
 }
 

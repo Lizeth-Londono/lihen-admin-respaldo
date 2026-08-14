@@ -52,7 +52,7 @@ function canonicalStatus(value) {
   if (value == null || String(value).trim() === '') return undefined;
   const normalized = normalize(value);
   if (normalized === 'activo') return 'activo';
-  if (normalized === 'inactivo') return 'inactivo';
+  if (['inactivo','oculto','inactive'].includes(normalized)) return 'oculto';
   return String(value).trim();
 }
 

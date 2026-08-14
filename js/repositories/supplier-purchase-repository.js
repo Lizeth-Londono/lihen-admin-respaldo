@@ -34,18 +34,24 @@ export async function confirmSupplierPurchase(id, operationKey) {
 }
 
 export async function receiveSupplierPurchase(id, items, notes, operationKey) {
+  const rpcItems = (items || []).map((item) => ({
+    product_id: item.product_id,
+    quantity: Number(item.quantity_received ?? item.quantity ?? 0),
+    unit_cost: Number(item.final_unit_cost ?? item.unit_cost ?? 0)
+  }));
   return unwrap(await supabase.rpc('receive_supplier_purchase_v2_atomic', {
     p_supplier_request_id: id,
-    p_items: items,
+    p_items: rpcItems,
     p_notes: notes || null,
     p_operation_key: operationKey
   }), 'No fue posible registrar la recepción.');
 }
 
 export async function registerSupplierPayment(payload) {
-  return unwrap(await supabase.rpc('register_supplier_payment_atomic', {
+  return unwrap(await supabase.rpc('register_supplier_payment_v2_atomic', {
     p_supplier_request_id: payload.purchaseId,
-    p_account_id: payload.accountId,
+    p_account_id: payload.accountId || null,
+    p_payment_source: payload.paymentSource || 'lihen',
     p_amount: payload.amount,
     p_payment_method: payload.paymentMethod,
     p_paid_at: payload.paidAt,
