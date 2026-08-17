@@ -46,3 +46,37 @@ test('detecta SKU repetidos dentro del archivo', () => {
   ], products);
   assert.equal(plan.summary.error, 1);
 });
+
+test('ignora proveedor no registrado como cambio para evitar falso conflicto de concurrencia', () => {
+  const current = [{
+    id: 'p1', sku: 'BC-082', name: 'Fragancia LIHEN', business_line: 'Beauty Care',
+    supplier_products: [{ preferred: true, supplier: { business_name: 'Proveedor Actual' } }]
+  }];
+  const activeSuppliers = [{ id: 's1', business_name: 'Proveedor Actual', active: true }];
+  const plan = buildInventoryImportPlan([{
+    row_number: 83, internal_id: 'p1', sku: 'BC-082', name: 'Fragancia LIHEN', supplier_name: 'LIHEN.CO'
+  }], current, activeSuppliers);
+  assert.equal(plan.rows[0].action, 'unchanged');
+  assert.equal(plan.summary.warning, 1);
+  assert.equal(Object.hasOwn(plan.rows[0].changes, 'supplier_name'), false);
+});
+
+test('elige proveedor actual con el mismo orden determinista que la RPC', () => {
+  const current = [{
+    id: 'p1', sku: 'BC-001', name: 'Producto A', business_line: 'Beauty Care',
+    supplier_products: [
+      { preferred: false, supplier: { business_name: 'Zeta' } },
+      { preferred: true, supplier: { business_name: 'Beta' } },
+      { preferred: true, supplier: { business_name: 'Alfa' } }
+    ]
+  }];
+  const suppliers = [
+    { id: 'a', business_name: 'Alfa', active: true },
+    { id: 'b', business_name: 'Beta', active: true },
+    { id: 'z', business_name: 'Zeta', active: true }
+  ];
+  const plan = buildInventoryImportPlan([{
+    row_number: 2, internal_id: 'p1', sku: 'BC-001', name: 'Producto A', supplier_name: 'Alfa'
+  }], current, suppliers);
+  assert.equal(plan.rows[0].action, 'unchanged');
+});

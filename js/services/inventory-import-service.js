@@ -25,9 +25,14 @@ function currentValue(product, field) {
   }
   if (field === 'supplier_name') {
     const links = Array.isArray(product?.supplier_products) ? product.supplier_products : [];
-    return links.find(link => link?.preferred)?.supplier?.business_name
-      || links[0]?.supplier?.business_name
-      || null;
+    const ordered = [...links]
+      .filter(link => link?.supplier?.business_name)
+      .sort((a, b) => {
+        const preferredDiff = Number(Boolean(b?.preferred)) - Number(Boolean(a?.preferred));
+        if (preferredDiff) return preferredDiff;
+        return String(a.supplier.business_name).localeCompare(String(b.supplier.business_name), 'es', { sensitivity: 'base' });
+      });
+    return ordered[0]?.supplier?.business_name || null;
   }
   return product?.[field] ?? null;
 }
@@ -161,9 +166,11 @@ export function buildInventoryImportPlan(rows, products, suppliers = []) {
       }
     }
 
+    let supplierNameIsValid = true;
     if (row.supplier_name) {
       const matchedSupplier = supplierByName.get(normalize(row.supplier_name));
       if (!matchedSupplier && suppliers.length) {
+        supplierNameIsValid = false;
         const item = issue('supplier_name', row.supplier_name, 'No existe un proveedor activo con ese nombre exacto.', 'Corrige el nombre para que coincida con un proveedor registrado. El producto se importará sin cambiar su relación de proveedor.', 'warning');
         warnings.push(`${item.field_label}: ${item.reason}`); issues.push(item);
       } else if (matchedSupplier) {
@@ -195,6 +202,9 @@ export function buildInventoryImportPlan(rows, products, suppliers = []) {
     if (current && !errors.length) {
       for (const field of editableFields) {
         if (!Object.prototype.hasOwnProperty.call(row, field) || row[field] === undefined) continue;
+        // Un proveedor no reconocido es solo una advertencia: no debe formar parte
+        // del cambio ni del snapshot optimista porque la RPC lo conserva sin alterar.
+        if (field === 'supplier_name' && !supplierNameIsValid) continue;
         if (comparable(row[field], field) !== comparable(currentValue(current, field), field)) {
           changes[field] = { before: currentValue(current, field), after: row[field] };
         }
