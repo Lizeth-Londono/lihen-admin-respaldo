@@ -354,3 +354,46 @@ body.confirmation-open{overflow:hidden;overscroll-behavior:none}
   .modal{max-height:92dvh}
   .quick-sale-form .form-actions{bottom:0}
 }
+
+/* ============================================================
+   BUSCADOR GLOBAL DE PRODUCTOS · 2026-08-17
+   Combobox reutilizable para venta rápida, pedidos y compras.
+   ============================================================ */
+.product-search-mount{position:relative;min-width:0}
+.product-search-combobox{position:relative;min-width:0}
+.product-search-input{
+  width:100%;min-height:46px;border:1px solid var(--line);border-radius:13px;
+  padding:11px 42px 11px 14px;background:#fff;color:var(--ink);font:inherit;
+}
+.product-search-input:focus{outline:2px solid rgba(133,91,181,.18);border-color:#b59ad2}
+.product-search-input[readonly]{background:#fffaf6;font-weight:700;cursor:default}
+.product-search-clear{
+  position:absolute;right:8px;top:8px;width:30px;height:30px;border:0;border-radius:999px;
+  background:#f2e9e2;color:var(--gold-dark);font-size:1.15rem;line-height:1;cursor:pointer;z-index:4
+}
+.product-search-clear:hover{background:#eadbd0}
+.product-search-results{
+  position:absolute;z-index:80;left:0;right:0;top:calc(100% + 7px);max-height:280px;overflow-y:auto;
+  overscroll-behavior:contain;border:1px solid var(--line);border-radius:14px;background:#fff;
+  box-shadow:0 18px 42px rgba(62,39,29,.16);padding:6px;scrollbar-gutter:stable
+}
+.product-search-option{
+  width:100%;display:flex;align-items:center;justify-content:space-between;gap:12px;text-align:left;
+  border:0;border-radius:10px;background:#fff;color:var(--ink);padding:10px 11px;cursor:pointer;font:inherit
+}
+.product-search-option:hover,.product-search-option.is-active{background:#fff4eb}
+.product-search-option-main{display:block;min-width:0}
+.product-search-option-main b,.product-search-option-main small{display:block}
+.product-search-option-main b{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.product-search-option-main small{margin-top:3px;color:var(--muted);font-size:.76rem;font-weight:500}
+.product-search-option-price{flex:0 0 auto;color:var(--gold-dark);font-size:.78rem;font-weight:800}
+.product-search-empty{padding:14px 12px;color:var(--muted);font-size:.82rem;font-weight:500}
+.quick-product-search .product-search-input{min-height:46px}
+.purchase-product .product-search-mount{margin-top:7px}
+.purchase-product .product-search-input{min-height:43px}
+.purchase-item-row{position:relative}
+@media(max-width:640px){
+  .product-search-results{max-height:240px}
+  .product-search-option{align-items:flex-start}
+  .product-search-option-price{display:none}
+}

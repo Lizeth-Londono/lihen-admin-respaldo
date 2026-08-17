@@ -334,8 +334,24 @@ function bindViewFilters() {
 
   bindTableSearch('#orderSearch');
   bindTableSearch('#quickSaleSearch');
-  bindTableSearch('#productSearch');
   bindTableSearch('#customerSearch');
+
+  // Inventario combina búsqueda + estado web sobre el catálogo completo cargado.
+  // data-product-search incluye nombre, SKU, código catálogo, marca y categoría.
+  const applyProductFilters = () => {
+    const query = $('#productSearch')?.value.trim().toLowerCase() || '';
+    const visibility = $('#productVisibility')?.value || '';
+    $$('[data-product-row]').forEach((row) => {
+      const matchesSearch = !query || (row.dataset.productSearch || '').includes(query);
+      const webState = row.dataset.webState || '';
+      const matchesVisibility = !visibility
+        || (visibility === 'visible' && webState === 'publicado')
+        || (visibility === 'hidden' && webState === 'oculto');
+      row.hidden = !(matchesSearch && matchesVisibility);
+    });
+  };
+  $('#productSearch')?.addEventListener('input', applyProductFilters);
+  $('#productVisibility')?.addEventListener('change', applyProductFilters);
 
   $('#supplierSearch')?.addEventListener('input', (event) => {
     const query = event.target.value.trim().toLowerCase();
@@ -344,13 +360,6 @@ function bindViewFilters() {
     });
   });
 
-  $('#productVisibility')?.addEventListener('change', (event) => {
-    $$('tbody tr').forEach((row) => {
-      const text = row.innerText.toLowerCase();
-      row.hidden = (event.target.value === 'visible' && !text.includes('publicado'))
-        || (event.target.value === 'hidden' && !text.includes('oculto'));
-    });
-  });
 }
 
 document.addEventListener('click', (event) => {

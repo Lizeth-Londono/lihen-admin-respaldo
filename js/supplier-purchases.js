@@ -5,6 +5,7 @@ import { confirmAction, moneyDetail } from './services/confirmation-service.js';
 import { createOperationKey } from './services/operation-key-service.js';
 import { normalizePurchaseItems, calculatePurchaseTotals, summarizePurchase } from './services/supplier-purchase-service.js';
 import { createSupplierPurchase, createHistoricalSupplierPurchase, confirmSupplierPurchase, receiveSupplierPurchase, registerSupplierPayment } from './repositories/supplier-purchase-repository.js';
+import { createProductSearch } from './components/product-search.js';
 
 function dateInputValue(date = new Date()) {
   const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
@@ -17,9 +18,8 @@ function dateTimeInputValue(date = new Date()) {
 }
 
 function purchaseItemRow(productId = '') {
-  const options = state.products.map((product) => `<option value="${product.id}" ${product.id === productId ? 'selected' : ''}>${escapeHtml(product.sku || product.catalog_code || 'Sin código')} · ${escapeHtml(product.name)}</option>`).join('');
-  return `<div class="purchase-item-row" data-purchase-item>
-    <label class="purchase-product">Producto<select name="product_id" required><option value="">Selecciona</option>${options}</select></label>
+  return `<div class="purchase-item-row" data-purchase-item data-initial-product-id="${escapeHtml(productId)}">
+    <label class="purchase-product">Producto<div data-purchase-product-search></div></label>
     <label>Cantidad<input name="quantity_requested" type="number" min="1" step="1" value="1" required></label>
     <label>Costo unitario<input name="quoted_unit_cost" type="number" min="0" step="1" value="0" required></label>
     <div class="purchase-item-total"><span>Subtotal</span><b data-line-total>${money(0)}</b></div>
@@ -27,9 +27,26 @@ function purchaseItemRow(productId = '') {
   </div>`;
 }
 
+function mountPurchaseProductSearch(row) {
+  const mount=$('[data-purchase-product-search]', row);
+  if(!mount || mount.dataset.searchMounted==='true')return;
+  mount.dataset.searchMounted='true';
+  createProductSearch({
+    mount,
+    products:state.products,
+    fieldName:'product_id',
+    selectedProductId:row.dataset.initialProductId||'',
+    placeholder:'Buscar producto por nombre o SKU'
+  });
+}
+
+function mountPurchaseProductSearches(form) {
+  form.querySelectorAll('[data-purchase-item]').forEach(mountPurchaseProductSearch);
+}
+
 function collectItems(form) {
   return [...form.querySelectorAll('[data-purchase-item]')].map((row) => ({
-    product_id: $('select[name="product_id"]', row)?.value,
+    product_id: $('input[name="product_id"]', row)?.value,
     quantity_requested: $('input[name="quantity_requested"]', row)?.value,
     quoted_unit_cost: $('input[name="quoted_unit_cost"]', row)?.value
   }));
@@ -72,10 +89,12 @@ export async function newSupplierPurchase(supplierId, { historical = false } = {
   </form>`, { wide: true });
 
   const form = $('#supplierPurchaseForm');
+  mountPurchaseProductSearches(form);
   form.addEventListener('input', () => updateTotals(form));
   form.addEventListener('click', (event) => {
     if (event.target.closest('[data-add-purchase-item]')) {
       $('[data-purchase-items]', form).insertAdjacentHTML('beforeend', purchaseItemRow());
+      mountPurchaseProductSearch(form.querySelector('[data-purchase-item]:last-child'));
       updateTotals(form);
     }
     const remove = event.target.closest('[data-remove-purchase-item]');

@@ -10,18 +10,13 @@ import { orderItemKey as itemKey, normalizeOrderItems as normalizedPayload, comp
 import { modal, closeModal, toast, badge, totals } from './ui.js';
 import { confirmAction } from './services/confirmation-service.js';
 import { openReceipt } from './receipts.js';
+import { createProductSearch } from './components/product-search.js';
 
 function publishOrderDebug(entry){
   const snapshot={...entry,created_at:new Date().toISOString()};
   window.__LIHEN_LAST_ORDER_SAVE__=snapshot;
   try{ sessionStorage.setItem('lihen:last-order-save',JSON.stringify(snapshot)); }catch(_err){}
   return snapshot;
-}
-
-function productOption(p){
-  const inv=p.inventory?.[0]||{};
-  const search=[p.name,p.sku,p.brand,p.category].filter(Boolean).join(' · ');
-  return `<option value="${p.id}" data-price="${Number(p.sale_price)||0}" data-stock="${Number(inv.available_stock)||0}">${escapeHtml(search)} · Stock ${Number(inv.available_stock)||0}</option>`;
 }
 
 async function fetchFullOrder(order){ return getOrderById(order.id); }
@@ -33,7 +28,7 @@ function editorMarkup(order){
       <div class="form-grid"><label class="full">Cliente<select name="customer_id" required><option value="">Selecciona un cliente</option>${state.customers.map(c=>`<option value="${c.id}" ${order?.customer_id===c.id?'selected':''}>${escapeHtml(c.full_name)} · ${escapeHtml(c.whatsapp)}</option>`).join('')}</select></label>${!editing?`<label class="full">Modo de registro<select name="record_mode" id="orderRecordMode"><option value="actual">Pedido actual · flujo normal</option><option value="historico_vendido">Pedido histórico ya vendido · descuenta inventario, NO caja</option></select></label><label id="orderHistoricalDateWrap" hidden>Fecha histórica<input name="historical_occurred_at" type="datetime-local"></label><label id="orderHistoricalSourceWrap" hidden>Referencia histórica<input name="historical_source_reference" placeholder="Ej. Pedido inauguración 02-08-2026"></label><div id="orderHistoricalNotice" class="alert warning full" hidden><b>Reconstrucción:</b> se registrará directamente como entregado/pagado, consumirá inventario y no modificará Caja y cuentas. Se usarán precios maestros sin descuento.</div>`:''}</div>
       <div class="quick-product-box">
         <div class="quick-product-heading"><p class="eyebrow">AGREGAR PRODUCTO</p><h3>Selección rápida</h3><small>Agrega uno tras otro sin desplazarte.</small></div>
-        <label class="quick-product-search">Producto<select id="quickProduct"><option value="">Buscar por nombre, SKU, marca o categoría</option>${state.products.map(productOption).join('')}</select></label>
+        <label class="quick-product-search">Producto<div id="quickProductSearch"></div></label>
         <div class="quick-product-fields">
           <label>Cantidad<input id="quickQuantity" type="number" min="1" value="1"></label>
           <label>Precio<input id="quickPrice" type="number" min="0" value="0"></label>
@@ -93,7 +88,6 @@ export async function openOrderEditor(order=null){
 
   const form=$('#orderEditorForm');
   const itemsContainer=$('#orderItems');
-  const quick=$('#quickProduct');
   const quickQty=$('#quickQuantity');
   const quickPrice=$('#quickPrice');
   $('#discountType').value=order?.discount_type||'ninguno';
@@ -218,11 +212,19 @@ export async function openOrderEditor(order=null){
     toast('Producto agregado al pedido');
   }
 
-  quick.addEventListener('change',()=>{quickPrice.value=quick.selectedOptions[0]?.dataset.price||0;});
+  const quickProductSearch=createProductSearch({
+    mount:$('#quickProductSearch'),
+    products:state.products,
+    placeholder:'Buscar producto por nombre o SKU',
+    showPrice:true,
+    onSelect(product){ quickPrice.value=Number(product.sale_price)||0; },
+    onClear(){ quickPrice.value=0; }
+  });
   $('#quickAddProduct').addEventListener('click',()=>{
-    if(!quick.value)return toast('Selecciona un producto','danger');
-    addProduct(quick.value,quickQty.value,quickPrice.value);
-    quick.value='';quickQty.value=1;quickPrice.value=0;quick.focus();
+    const selected=quickProductSearch.getSelected();
+    if(!selected)return toast('Selecciona un producto','danger');
+    addProduct(selected.id,quickQty.value,quickPrice.value);
+    quickProductSearch.clear({notify:false});quickQty.value=1;quickPrice.value=0;quickProductSearch.focus();
   });
   ['discountType','discountValue','deliveryCost'].forEach(id=>$('#'+id).addEventListener('input',updateSummary));
   if(!order){

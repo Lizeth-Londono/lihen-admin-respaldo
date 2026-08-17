@@ -4,13 +4,10 @@ import { state, loadProducts, loadCustomers, loadQuickSales, loadFinancialAccoun
 import { $, $$, escapeHtml, money, dateTime, whatsappUrl } from './utils.js';
 import { modal, closeModal, toast } from './ui.js';
 import { confirmAction } from './services/confirmation-service.js';
+import { createProductSearch } from './components/product-search.js';
 
 let saleItems=[];
 
-function optionMarkup(p){
-  const inv=p.inventory?.[0]||{};
-  return `<option value="${p.id}" data-price="${Number(p.sale_price)||0}" data-stock="${Number(inv.available_stock)||0}">${escapeHtml(p.name)} · ${escapeHtml(p.sku||p.brand||'Sin SKU')} · Stock ${Number(inv.available_stock)||0}</option>`;
-}
 function itemKey(item){return `${item.product_id}:${item.variant_id||''}`;}
 function totals(){
   const subtotal=saleItems.reduce((sum,i)=>sum+i.quantity*i.unit_price,0);
@@ -55,7 +52,7 @@ export async function newQuickSale(){
     </div>
     <section class="quick-product-box sale-quick-box">
       <div class="quick-product-heading"><p class="eyebrow">VENTA INMEDIATA</p><h3>Agregar producto</h3><small>El stock se descontará al guardar.</small></div>
-      <label class="quick-product-search">Producto<select id="saleProduct"><option value="">Buscar producto</option>${state.products.map(optionMarkup).join('')}</select></label>
+      <label class="quick-product-search">Producto<div id="saleProductSearch"></div></label>
       <div class="quick-product-fields"><label>Cantidad<input id="saleQuantity" type="number" min="1" value="1"></label><label>Precio<input id="salePrice" type="number" min="0" value="0"></label><button type="button" class="button secondary quick-add" id="saleAdd">+ Agregar</button></div>
     </section>
     <section class="order-items-section"><div class="section-title"><div><p class="eyebrow">PRODUCTOS VENDIDOS</p><h3 id="quickSaleCount">0 productos</h3></div></div><div id="quickSaleItems" class="sale-items-list"></div></section>
@@ -71,16 +68,29 @@ export async function newQuickSale(){
     <div class="form-actions"><button type="button" class="button ghost" data-close-modal>Cancelar</button><button class="button primary" type="submit">Guardar venta</button></div>
   </form>`,{wide:true});
 
-  const product=$('#saleProduct'),quantity=$('#saleQuantity'),price=$('#salePrice');
-  product.onchange=()=>{const opt=product.selectedOptions[0];price.value=Number(opt?.dataset.price)||0;quantity.max=Number(opt?.dataset.stock)||1;};
+  const quantity=$('#saleQuantity'),price=$('#salePrice');
+  const productSearch=createProductSearch({
+    mount:$('#saleProductSearch'),
+    products:state.products,
+    placeholder:'Buscar producto por nombre o SKU',
+    showPrice:true,
+    onSelect(product){
+      const stock=Number(product.inventory?.[0]?.available_stock)||0;
+      price.value=Number(product.sale_price)||0;
+      quantity.max=Math.max(1,stock);
+    },
+    onClear(){ price.value=0; quantity.max=''; }
+  });
   $('#saleAdd').onclick=()=>{
-    const opt=product.selectedOptions[0];if(!product.value){toast('Selecciona un producto','warning');return;}
-    const qty=Math.max(1,Number(quantity.value)||1),stock=Number(opt.dataset.stock)||0;
+    const selected=productSearch.getSelected();
+    if(!selected){toast('Selecciona un producto','warning');return;}
+    const stock=Number(selected.inventory?.[0]?.available_stock)||0;
+    const qty=Math.max(1,Number(quantity.value)||1);
     if(qty>stock){toast(`Solo hay ${stock} unidad(es) disponibles`,'danger');return;}
-    const key=`${product.value}:`;const existing=saleItems.find(i=>itemKey(i)===key);
+    const key=`${selected.id}:`;const existing=saleItems.find(i=>itemKey(i)===key);
     if(existing){if(existing.quantity+qty>stock){toast(`La cantidad supera el stock disponible (${stock})`,'danger');return;}existing.quantity+=qty;toast('El producto ya estaba en la venta; se sumó la cantidad.');}
-    else saleItems.push({product_id:product.value,variant_id:null,variant_snapshot:null,name:opt.textContent.split(' · ')[0],sku:opt.textContent.split(' · ')[1]||'',stock,quantity:qty,unit_price:Math.max(0,Number(price.value)||0)});
-    product.value='';quantity.value=1;price.value=0;renderSaleItems();product.focus();
+    else saleItems.push({product_id:selected.id,variant_id:null,variant_snapshot:null,name:selected.name,sku:selected.sku||selected.catalog_code||'Sin SKU',stock,quantity:qty,unit_price:Math.max(0,Number(price.value)||0)});
+    productSearch.clear({notify:false});quantity.value=1;price.value=0;renderSaleItems();productSearch.focus();
   };
   const paymentMethod=$('[name="payment_method"]',$('#quickSaleForm'));
   const financialAccount=$('[name="financial_account_id"]',$('#quickSaleForm'));
