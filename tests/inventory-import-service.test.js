@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildInventoryImportPlan, mergeExistingProduct } from '../js/services/inventory-import-service.js';
+import { buildInventoryImportPlan, buildInventoryImportBatchPayload, mergeExistingProduct } from '../js/services/inventory-import-service.js';
 
 const products = [
   { id: 'p1', sku: 'BC-001', name: 'Producto A', business_line: 'Beauty Care', sale_price: 10000, minimum_stock: 2, status: 'activo', visible_on_website: true, inventory: [{ physical_stock: 5 }] },
@@ -79,4 +79,12 @@ test('elige proveedor actual con el mismo orden determinista que la RPC', () => 
     row_number: 2, internal_id: 'p1', sku: 'BC-001', name: 'Producto A', supplier_name: 'Alfa'
   }], current, suppliers);
   assert.equal(plan.rows[0].action, 'unchanged');
+});
+
+test('no envía supplier_name en update cuando proveedor no es un cambio real', () => {
+  const product = { id:'p1', sku:'BC-082', name:'Fragancia LIHEN', business_line:'Beauty Care', supplier_products:[{ preferred:true, supplier:{ business_name:'Glow Belleza & Accesorios' } }] };
+  const row = { row_number:83, internal_id:'p1', sku:'BC-082', name:'Fragancia LIHEN', business_line:'Beauty Care', supplier_name:'LIHEN.CO', catalog_code:'BC-082' };
+  const plan = buildInventoryImportPlan([row],[product],[{id:'s1',business_name:'Glow Belleza & Accesorios',active:true}]);
+  const payload = buildInventoryImportBatchPayload(plan,{sourceName:'x.xlsx',operationKey:'op'});
+  assert.equal(payload.p_rows[0].supplier_name, undefined);
 });

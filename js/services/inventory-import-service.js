@@ -323,7 +323,11 @@ export function buildInventoryImportBatchPayload(plan, { sourceName, operationKe
       subcategory: item.row.subcategory,
       name: item.row.name,
       brand: item.row.brand,
-      supplier_name: item.row.supplier_name,
+      // En actualizaciones solo enviamos proveedor si realmente forma parte del cambio.
+      // Esto evita que una columna informativa/no aplicable dispare lógica de proveedor en la RPC.
+      supplier_name: item.action === 'create' || Object.hasOwn(item.changes || {}, 'supplier_name')
+        ? item.row.supplier_name
+        : undefined,
       description: item.row.description,
       current_cost: item.row.current_cost,
       sale_price: item.row.sale_price,
